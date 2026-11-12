@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 470 400" role="img" aria-label="Atono Café">
+  <g fill="none" stroke="#1d1d1d" stroke-width="12" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M46 304 L233 50 L421 304"/>
+    <path d="M94 190 H320"/>
+    <path d="M146 190 V304"/>
+  </g>
+  <g fill="#3a3a3a" font-family="'Helvetica Neue', Helvetica, Arial, 'Liberation Sans', sans-serif" font-weight="700">
+    <text x="164" y="304" font-size="84" textLength="184" lengthAdjust="spacingAndGlyphs">ONO</text>
+    <text x="235" y="372" font-size="34" text-anchor="middle" letter-spacing="24">CAFÉ</text>
+  </g>
+</svg>

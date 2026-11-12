@@ -1,0 +1,30 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function email() {
+      return request.auth.token.email;
+    }
+    // Superadministrador: existe un documento admins/{su correo}.
+    function isSuper() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/admins/$(email()));
+    }
+
+    match /menus/{slug} {
+      // Cualquiera puede ver un menú.
+      allow read: if true;
+      // Solo el superadministrador crea o elimina menús.
+      allow create, delete: if isSuper();
+      // El dueño de un menú puede editarlo, pero no cambiar quién es dueño.
+      allow update: if isSuper()
+        || (request.auth != null
+            && email() in resource.data.owners
+            && request.resource.data.owners == resource.data.owners);
+    }
+
+    match /admins/{adminEmail} {
+      allow read: if request.auth != null && email() == adminEmail;
+      allow write: if false; // Se gestiona solo desde la consola de Firebase.
+    }
+  }
+}
