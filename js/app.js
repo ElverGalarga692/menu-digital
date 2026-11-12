@@ -3,8 +3,106 @@ import { createStore } from './store.js';
 import { sampleMenu, blankMenu, newId, DEFAULT_THEME } from './seed.js';
 
 const cleanSlug = (s) => String(s || '').toLowerCase().trim().replace(/[^a-z0-9-]/g, '');
-const slug = cleanSlug(new URLSearchParams(location.search).get('m')) || CONFIG.defaultMenu;
-const menuUrl = (s) => `${location.origin}${location.pathname}?m=${s}`;
+
+// Carpeta donde vive el sitio ('/' con dominio propio, '/repo/' en GitHub
+// Pages). La fija la etiqueta <base> que index.html crea al cargar.
+const BASE = new URL(document.baseURI).pathname;
+const RESERVED = new Set(['index.html', '404.html']);
+
+// El menú se elige por la dirección (/atono), por el formato antiguo
+// (?m=atono), por el dominio (CONFIG.domains) o, si no, el menú por defecto.
+function slugFromLocation() {
+  const fromQuery = cleanSlug(new URLSearchParams(location.search).get('m'));
+  if (fromQuery) return fromQuery;
+  const rest = location.pathname.startsWith(BASE) ? location.pathname.slice(BASE.length) : '';
+  const first = rest.split('/')[0];
+  if (first && !RESERVED.has(first) && cleanSlug(first)) return cleanSlug(first);
+  return (CONFIG.domains || {})[location.hostname] || CONFIG.defaultMenu;
+}
+
+const slug = slugFromLocation();
+const menuUrl = (s) => `${location.origin}${BASE}${s}`;
+
+// Idiomas: el principal es siempre español; cada menú puede activar un segundo.
+const LANGS = {
+  es: { label: 'Español', short: 'ES' },
+  en: { label: 'English', short: 'EN' },
+  pt: { label: 'Português', short: 'PT' },
+  fr: { label: 'Français', short: 'FR' },
+  de: { label: 'Deutsch', short: 'DE' },
+  it: { label: 'Italiano', short: 'IT' },
+};
+
+const TAGS = ['recomendado', 'nuevo', 'vegano', 'sin-gluten', 'picante'];
+
+// Textos fijos de la vista del cliente en cada idioma.
+const UI = {
+  es: {
+    soldOut: 'Agotado', soon: 'Próximamente', empty: 'Este menú todavía no tiene productos.',
+    directions: 'Cómo llegar', categories: 'Categorías', language: 'Idioma',
+    tags: { recomendado: 'Recomendado', nuevo: 'Nuevo', vegano: 'Vegano', 'sin-gluten': 'Sin gluten', picante: 'Picante' },
+  },
+  en: {
+    soldOut: 'Sold out', soon: 'Coming soon', empty: 'This menu has no items yet.',
+    directions: 'Directions', categories: 'Categories', language: 'Language',
+    tags: { recomendado: 'Recommended', nuevo: 'New', vegano: 'Vegan', 'sin-gluten': 'Gluten-free', picante: 'Spicy' },
+  },
+  pt: {
+    soldOut: 'Esgotado', soon: 'Em breve', empty: 'Este cardápio ainda não tem produtos.',
+    directions: 'Como chegar', categories: 'Categorias', language: 'Idioma',
+    tags: { recomendado: 'Recomendado', nuevo: 'Novo', vegano: 'Vegano', 'sin-gluten': 'Sem glúten', picante: 'Picante' },
+  },
+  fr: {
+    soldOut: 'Épuisé', soon: 'Bientôt', empty: 'Ce menu n’a pas encore de produits.',
+    directions: 'Itinéraire', categories: 'Catégories', language: 'Langue',
+    tags: { recomendado: 'Recommandé', nuevo: 'Nouveau', vegano: 'Végan', 'sin-gluten': 'Sans gluten', picante: 'Épicé' },
+  },
+  de: {
+    soldOut: 'Ausverkauft', soon: 'Demnächst', empty: 'Diese Karte hat noch keine Produkte.',
+    directions: 'Route', categories: 'Kategorien', language: 'Sprache',
+    tags: { recomendado: 'Empfohlen', nuevo: 'Neu', vegano: 'Vegan', 'sin-gluten': 'Glutenfrei', picante: 'Scharf' },
+  },
+  it: {
+    soldOut: 'Esaurito', soon: 'Prossimamente', empty: 'Questo menù non ha ancora prodotti.',
+    directions: 'Indicazioni', categories: 'Categorie', language: 'Lingua',
+    tags: { recomendado: 'Consigliato', nuevo: 'Novità', vegano: 'Vegano', 'sin-gluten': 'Senza glutine', picante: 'Piccante' },
+  },
+};
+
+const langKey = `menu-digital:lang:${slug}`;
+let viewLang = 'es';
+
+function secondLang(menu) {
+  const code = menu?.lang2;
+  return code && code !== 'es' && LANGS[code] ? code : '';
+}
+
+// Idioma que ve el visitante: el que eligió; si no, el de su teléfono
+// cuando coincide con el segundo idioma del menú; si no, español.
+function currentLang(menu) {
+  const l2 = secondLang(menu);
+  if (!l2) return 'es';
+  let saved;
+  try {
+    saved = localStorage.getItem(langKey);
+  } catch {
+    saved = null;
+  }
+  if (saved === 'es' || saved === l2) return saved;
+  return (navigator.language || '').toLowerCase().startsWith(l2) ? l2 : 'es';
+}
+
+function chooseLang(code) {
+  try {
+    localStorage.setItem(langKey, code);
+  } catch {
+    // Sin almacenamiento: la elección dura hasta recargar.
+  }
+  render();
+}
+
+// Texto de un campo en el idioma visible; si falta la traducción, el original.
+const tr = (obj, field) => (viewLang !== 'es' && obj?.t?.[field]) || obj?.[field] || '';
 
 // Tipografías disponibles por negocio (Google Fonts). `head` se usa en
 // títulos y nombres de producto; `body` en el resto.
@@ -50,10 +148,29 @@ function h(tag, attrs = {}, ...kids) {
   return el;
 }
 
-function toast(text, bad = false) {
+function toast(text, bad = false, action) {
   const el = h('div', { class: bad ? 'toast bad' : 'toast' }, text);
-  document.getElementById('toasts').append(el);
-  setTimeout(() => el.remove(), bad ? 5000 : 1800);
+  if (action) {
+    el.classList.add('has-action');
+    el.append(
+      h(
+        'button',
+        {
+          type: 'button',
+          onclick: () => {
+            el.remove();
+            action.run();
+          },
+        },
+        action.label,
+      ),
+    );
+  }
+  // Los avisos simples no se apilan: el nuevo sustituye al anterior.
+  const box = document.getElementById('toasts');
+  if (!action) box.querySelectorAll('.toast:not(.has-action):not(.bad)').forEach((old) => old.remove());
+  box.append(el);
+  setTimeout(() => el.remove(), action ? 8000 : bad ? 5000 : 1800);
 }
 
 function formatPrice(price, currency) {
@@ -140,7 +257,8 @@ function canEdit() {
 
 // ---------- Guardado ----------
 
-async function mutate(change) {
+// Aplica un cambio al menú y lo guarda. `undo` añade "Deshacer" al aviso.
+async function mutate(change, { message = 'Guardado', undo } = {}) {
   const next = structuredClone(state.menu);
   change(next);
   const previous = state.menu;
@@ -149,7 +267,7 @@ async function mutate(change) {
   try {
     await store.saveMenu(slug, next);
     writeCache(next);
-    toast('Guardado');
+    toast(message, false, undo && { label: 'Deshacer', run: undo });
   } catch (err) {
     state.menu = previous;
     render();
@@ -172,10 +290,88 @@ function friendlyError(err) {
   return err?.message || 'error desconocido.';
 }
 
-function move(list, index, delta) {
-  const target = index + delta;
-  if (target < 0 || target >= list.length) return;
-  [list[index], list[target]] = [list[target], list[index]];
+function moveTo(list, from, to) {
+  if (!list || from === to || from < 0 || to < 0 || from >= list.length || to >= list.length) return;
+  const [moved] = list.splice(from, 1);
+  list.splice(to, 0, moved);
+}
+
+// Asa para reordenar: se arrastra con el dedo o el ratón, o se usa con las
+// flechas del teclado. `selector` identifica los elementos hermanos que se
+// ordenan y `onMove(desde, hasta)` guarda la nueva posición.
+function dragHandle(label, selector, onMove) {
+  const btn = h('button', { class: 'handle', type: 'button', 'aria-label': label, title: 'Arrastra para reordenar (o usa las flechas del teclado)' }, '⠿');
+  const siblingsOf = (el) => [...el.parentNode.querySelectorAll(`:scope > ${selector}`)];
+
+  btn.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+    e.preventDefault();
+    const el = btn.closest(selector);
+    const all = siblingsOf(el);
+    const from = all.indexOf(el);
+    const to = from + (e.key === 'ArrowUp' ? -1 : 1);
+    if (to < 0 || to >= all.length) return;
+    onMove(from, to);
+  });
+
+  btn.addEventListener('pointerdown', (e) => {
+    if (e.button) return;
+    e.preventDefault();
+    const el = btn.closest(selector);
+    const parent = el.parentNode;
+    const from = siblingsOf(el).indexOf(el);
+    let y = e.clientY;
+    let frame;
+    btn.setPointerCapture(e.pointerId);
+    el.classList.add('dragging');
+
+    // El elemento salta de sitio cuando el puntero cruza la mitad del vecino.
+    const place = () => {
+      for (;;) {
+        const prev = el.previousElementSibling;
+        const next = el.nextElementSibling;
+        if (prev?.matches(selector)) {
+          const r = prev.getBoundingClientRect();
+          if (y < r.top + r.height / 2) {
+            parent.insertBefore(el, prev);
+            continue;
+          }
+        }
+        if (next?.matches(selector)) {
+          const r = next.getBoundingClientRect();
+          if (y > r.top + r.height / 2) {
+            parent.insertBefore(next, el);
+            continue;
+          }
+        }
+        break;
+      }
+    };
+    const tick = () => {
+      const edge = 70;
+      if (y < edge) window.scrollBy({ top: -10, behavior: 'instant' });
+      else if (y > window.innerHeight - edge) window.scrollBy({ top: 10, behavior: 'instant' });
+      place();
+      frame = requestAnimationFrame(tick);
+    };
+    const onPointerMove = (ev) => {
+      y = ev.clientY;
+    };
+    const end = () => {
+      cancelAnimationFrame(frame);
+      btn.removeEventListener('pointermove', onPointerMove);
+      btn.removeEventListener('pointerup', end);
+      btn.removeEventListener('pointercancel', end);
+      el.classList.remove('dragging');
+      const to = siblingsOf(el).indexOf(el);
+      if (to !== from) onMove(from, to);
+    };
+    btn.addEventListener('pointermove', onPointerMove);
+    btn.addEventListener('pointerup', end);
+    btn.addEventListener('pointercancel', end);
+    frame = requestAnimationFrame(tick);
+  });
+  return btn;
 }
 
 // ---------- Diálogos ----------
@@ -272,20 +468,26 @@ function parsePrice(text) {
 }
 
 // Editor de tamaños u opciones de un producto (Chico / Grande…).
-function variantsWidget(initial) {
+// Con segundo idioma activo, cada opción lleva también su traducción.
+function variantsWidget(initial, l2) {
   const list = h('div', { class: 'variants-edit' });
   const addRow = (v = {}) => {
-    const label = h('input', { type: 'text', placeholder: 'Ej. Grande', maxlength: 30, 'aria-label': 'Nombre de la opción' });
+    const label = h('input', { type: 'text', placeholder: 'Ej. Grande', maxlength: 30, 'aria-label': 'Nombre de la opción', 'data-role': 'label' });
     label.value = v.label ?? '';
-    const price = h('input', { type: 'number', step: 'any', min: 0, inputmode: 'decimal', placeholder: 'Precio', 'aria-label': 'Precio de la opción' });
+    const price = h('input', { type: 'number', step: 'any', min: 0, inputmode: 'decimal', placeholder: 'Precio', 'aria-label': 'Precio de la opción', 'data-role': 'price' });
     price.value = v.price ?? '';
+    const translated =
+      l2 && h('input', { type: 'text', class: 'variant-t', placeholder: `En ${LANGS[l2].label}`, maxlength: 30, 'aria-label': `Nombre de la opción en ${LANGS[l2].label}`, 'data-role': 't' });
+    if (translated) translated.value = v.t?.label ?? '';
     const row = h(
       'div',
       { class: 'variant-row' },
       label,
       price,
       h('button', { type: 'button', class: 'btn', 'aria-label': 'Quitar opción', onclick: () => row.remove() }, '×'),
+      translated,
     );
+    row.original = v;
     list.append(row);
     return label;
   };
@@ -303,33 +505,60 @@ function variantsWidget(initial) {
     value: () =>
       [...list.children]
         .map((row) => {
-          const [label, price] = row.querySelectorAll('input');
-          return { label: label.value.trim(), price: price.value.trim() };
+          const get = (role) => row.querySelector(`[data-role="${role}"]`)?.value.trim();
+          const out = { label: get('label'), price: get('price') };
+          if (l2) out.t = { label: get('t') };
+          else if (row.original.t) out.t = row.original.t;
+          return out;
         })
         .filter((v) => v.label || v.price !== ''),
   };
 }
 
+function tagsWidget(selected) {
+  const node = h(
+    'div',
+    { class: 'field' },
+    'Etiquetas',
+    h(
+      'div',
+      { class: 'tag-options' },
+      TAGS.map((tag) => {
+        const input = h('input', { type: 'checkbox', value: tag });
+        input.checked = selected.includes(tag);
+        return h('label', { class: 'tag-option' }, input, UI.es.tags[tag]);
+      }),
+    ),
+  );
+  return { node, value: () => [...node.querySelectorAll('input:checked')].map((i) => i.value) };
+}
+
 function itemForm(catId, item) {
+  const l2 = secondLang(state.menu);
+  const other = l2 && LANGS[l2].label;
   openForm({
     title: item ? 'Editar producto' : 'Nuevo producto',
     fields: [
       { name: 'name', label: 'Nombre', value: item?.name, required: true, maxlength: 80 },
+      l2 && { name: 't_name', label: `Nombre en ${other} (opcional)`, value: item?.t?.name, maxlength: 80 },
       { name: 'price', label: `Precio (${state.menu.currency || 'sin símbolo'})`, type: 'number', step: 'any', min: 0, value: item?.price },
-      { name: 'variants', type: 'custom', widget: variantsWidget(item?.variants || []) },
+      { name: 'variants', type: 'custom', widget: variantsWidget(item?.variants || [], l2) },
       { name: 'desc', label: 'Descripción (opcional)', type: 'textarea', value: item?.desc, maxlength: 300 },
+      l2 && { name: 't_desc', label: `Descripción en ${other} (opcional)`, type: 'textarea', value: item?.t?.desc, maxlength: 300 },
+      { name: 'tags', type: 'custom', widget: tagsWidget(item?.tags || []) },
       { name: 'available', label: 'Disponible', type: 'checkbox', value: item ? item.available !== false : true },
-    ],
+    ].filter(Boolean),
     onSubmit: (v) => {
       const price = parsePrice(v.price);
       const variants = v.variants.map((x) => {
         if (!x.label) throw new Error('Cada opción necesita un nombre.');
-        return { label: x.label, price: parsePrice(x.price) };
+        return { ...x, price: parsePrice(x.price) };
       });
       return mutate((m) => {
         const cat = m.categories.find((c) => c.id === catId);
         if (!cat) return;
-        const data = { name: v.name, price, variants, desc: v.desc, available: v.available };
+        const data = { name: v.name, price, variants, desc: v.desc, tags: v.tags, available: v.available };
+        if (l2) data.t = { name: v.t_name, desc: v.t_desc };
         const existing = item && cat.items.find((i) => i.id === item.id);
         if (existing) Object.assign(existing, data);
         else cat.items.push({ id: newId(), ...data });
@@ -339,14 +568,20 @@ function itemForm(catId, item) {
 }
 
 function categoryForm(cat) {
+  const l2 = secondLang(state.menu);
   openForm({
     title: cat ? 'Editar categoría' : 'Nueva categoría',
-    fields: [{ name: 'name', label: 'Nombre', value: cat?.name, required: true, maxlength: 60, placeholder: 'Ej. Cafés' }],
+    fields: [
+      { name: 'name', label: 'Nombre', value: cat?.name, required: true, maxlength: 60, placeholder: 'Ej. Cafés' },
+      l2 && { name: 't_name', label: `Nombre en ${LANGS[l2].label} (opcional)`, value: cat?.t?.name, maxlength: 60 },
+    ].filter(Boolean),
     onSubmit: (v) =>
       mutate((m) => {
+        const data = { name: v.name };
+        if (l2) data.t = { name: v.t_name };
         const existing = cat && m.categories.find((c) => c.id === cat.id);
-        if (existing) existing.name = v.name;
-        else m.categories.push({ id: newId(), name: v.name, items: [] });
+        if (existing) Object.assign(existing, data);
+        else m.categories.push({ id: newId(), ...data, items: [] });
       }),
   });
 }
@@ -457,21 +692,33 @@ function settingsForm() {
   const m = state.menu;
   const theme = { ...DEFAULT_THEME, ...(m.theme || {}) };
   const contact = m.contact || {};
+  const l2 = secondLang(m);
+  const other = l2 && LANGS[l2].label;
   const fields = [
     { name: 'name', label: 'Nombre del local', value: m.name, required: true, maxlength: 60 },
     { name: 'tagline', label: 'Subtítulo (se muestra si no hay logo)', value: m.tagline, maxlength: 80, placeholder: 'Ej. Café de especialidad' },
+    l2 && { name: 't_tagline', label: `Subtítulo en ${other}`, value: m.t?.tagline, maxlength: 80 },
     { name: 'logoUrl', type: 'custom', widget: logoWidget(m.logoUrl) },
     { name: 'currency', label: 'Símbolo de moneda', value: m.currency, maxlength: 6, placeholder: '$' },
     { name: 'font', label: 'Tipografía', type: 'select', value: FONTS[theme.font] ? theme.font : 'jost', options: Object.entries(FONTS).map(([key, f]) => [key, f.label]) },
     { name: 'bg', label: 'Color de fondo', type: 'color', value: theme.bg },
     { name: 'ink', label: 'Color del texto', type: 'color', value: theme.ink },
     { name: 'accent', label: 'Color de acento', type: 'color', value: theme.accent },
+    {
+      name: 'lang2',
+      label: 'Segundo idioma (al activarlo aparecen campos de traducción en cada formulario)',
+      type: 'select',
+      value: l2,
+      options: [['', 'Ninguno'], ...Object.entries(LANGS).filter(([code]) => code !== 'es').map(([code, l]) => [code, l.label])],
+    },
     { name: 'whatsapp', label: 'WhatsApp (número con código de país)', value: contact.whatsapp, maxlength: 20, placeholder: 'Ej. 52 55 1234 5678', inputmode: 'tel' },
     { name: 'instagram', label: 'Instagram (usuario)', value: contact.instagram, maxlength: 60, placeholder: 'Ej. atono.cafe' },
     { name: 'address', label: 'Dirección o enlace de Google Maps', value: contact.address, maxlength: 300 },
     { name: 'hours', label: 'Horario', type: 'textarea', value: contact.hours, maxlength: 200, placeholder: 'Ej. Lun a sáb · 8:00 a 20:00' },
+    l2 && { name: 't_hours', label: `Horario en ${other}`, type: 'textarea', value: m.t?.hours, maxlength: 200 },
     { name: 'note', label: 'Nota al pie (wifi, avisos…)', type: 'textarea', value: m.note, maxlength: 400 },
-  ];
+    l2 && { name: 't_note', label: `Nota al pie en ${other}`, type: 'textarea', value: m.t?.note, maxlength: 400 },
+  ].filter(Boolean);
   if (state.user?.isSuper && store.mode === 'firebase') {
     fields.push({
       name: 'owners',
@@ -485,9 +732,10 @@ function settingsForm() {
     fields,
     onSubmit: (v) =>
       mutate((next) => {
-        Object.assign(next, { name: v.name, tagline: v.tagline, currency: v.currency, note: v.note, logoUrl: v.logoUrl });
+        Object.assign(next, { name: v.name, tagline: v.tagline, currency: v.currency, note: v.note, logoUrl: v.logoUrl, lang2: v.lang2 });
         next.theme = { bg: v.bg, ink: v.ink, accent: v.accent, font: v.font };
         next.contact = { whatsapp: v.whatsapp, instagram: v.instagram, address: v.address, hours: v.hours };
+        if (l2) next.t = { tagline: v.t_tagline, hours: v.t_hours, note: v.t_note };
         if (v.owners !== undefined) {
           next.owners = v.owners.split(/[\s,;]+/).map((e) => e.toLowerCase()).filter(Boolean);
         }
@@ -508,7 +756,7 @@ function contactLinks(contact) {
   const address = String(contact.address || '').trim();
   if (address) {
     const isLink = /^https:\/\//i.test(address);
-    links.push(['Cómo llegar', isLink ? address : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`]);
+    links.push([UI[viewLang].directions, isLink ? address : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`]);
   }
   return links;
 }
@@ -672,7 +920,7 @@ async function menusDialog() {
       h(
         'ul',
         { class: 'menu-list' },
-        menus.map((m) => h('li', {}, h('a', { href: menuUrl(m.slug) }, m.name), h('small', {}, `?m=${m.slug}`))),
+        menus.map((m) => h('li', {}, h('a', { href: menuUrl(m.slug) }, m.name), h('small', {}, `/${m.slug}`))),
       ),
       h(
         'div',
@@ -698,7 +946,7 @@ async function menusDialog() {
 function newMenuForm(existing) {
   openForm({
     title: 'Crear menú nuevo',
-    hint: 'El identificador es lo que va en la dirección: ?m=identificador',
+    hint: 'El identificador es lo que va al final de la dirección: /identificador',
     submitLabel: 'Crear',
     fields: [
       { name: 'name', label: 'Nombre del local', required: true, maxlength: 60 },
@@ -730,6 +978,9 @@ function deleteMenu() {
 function render() {
   navObserver?.disconnect();
   const { menu, user } = state;
+  // Si el foco está en un asa de reordenar, se devuelve tras repintar.
+  const active = document.activeElement;
+  const focusedHandle = active?.classList.contains('handle') ? active.closest('[id]')?.id : null;
 
   if (state.error) {
     app.replaceChildren(h('div', { class: 'status' }, h('h1', {}, 'No se pudo cargar el menú'), h('p', {}, state.error)));
@@ -772,12 +1023,25 @@ function render() {
   }
 
   applyTheme(menu);
+  viewLang = currentLang(menu);
+  document.documentElement.lang = viewLang;
+  const text = UI[viewLang];
+  const l2 = secondLang(menu);
   const editing = state.editing && canEdit();
   const categories = menu.categories || [];
   const logo = safeLogoUrl(menu.logoUrl);
   const contact = menu.contact || {};
   const links = contactLinks(contact);
   const addressText = contact.address && !/^https:\/\//i.test(contact.address.trim()) ? contact.address : '';
+  const hours = (viewLang !== 'es' && menu.t?.hours) || contact.hours;
+  const tagline = tr(menu, 'tagline');
+  const note = tr(menu, 'note');
+
+  // Con <base> en la página, un enlace "#seccion" recargaría: se desplaza a mano.
+  const jump = (id) => (e) => {
+    e.preventDefault();
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   const view = h(
     'div',
@@ -787,26 +1051,42 @@ function render() {
     h(
       'header',
       { class: 'hero' },
+      l2 &&
+        h(
+          'div',
+          { class: 'langs', role: 'group', 'aria-label': text.language },
+          ['es', l2].map((code) =>
+            h('button', { type: 'button', 'aria-pressed': String(code === viewLang), title: LANGS[code].label, onclick: () => chooseLang(code) }, LANGS[code].short),
+          ),
+        ),
       logo ? h('img', { src: logo, alt: menu.name }) : h('h1', {}, menu.name),
-      menu.tagline && !logo && h('p', { class: 'tagline' }, menu.tagline),
-      (addressText || contact.hours) &&
-        h('div', { class: 'info' }, addressText && h('p', {}, addressText), contact.hours && h('p', { class: 'hours' }, contact.hours)),
+      tagline && !logo && h('p', { class: 'tagline' }, tagline),
+      (addressText || hours) && h('div', { class: 'info' }, addressText && h('p', {}, addressText), hours && h('p', { class: 'hours' }, hours)),
       links.length > 0 &&
         h('div', { class: 'contact' }, links.map(([label, href]) => h('a', { href, target: '_blank', rel: 'noopener noreferrer' }, label))),
     ),
     categories.length > 1 &&
-      h('nav', { class: 'cats', 'aria-label': 'Categorías' }, h('div', { class: 'cats-inner' }, categories.map((c) => h('a', { href: `#c-${c.id}` }, c.name)))),
+      h(
+        'nav',
+        { class: 'cats', 'aria-label': text.categories },
+        h(
+          'div',
+          { class: 'cats-inner' },
+          categories.map((c) => h('a', { href: `${location.pathname}#c-${c.id}`, 'data-target': `c-${c.id}`, onclick: jump(`c-${c.id}`) }, tr(c, 'name'))),
+        ),
+      ),
     h(
       'main',
       { class: 'wrap' },
-      categories.length === 0 && h('p', { class: 'empty', style: 'text-align:center;padding-top:40px' }, editing ? 'Empieza añadiendo una categoría.' : 'Este menú todavía no tiene productos.'),
-      categories.map((cat, ci) => categoryView(cat, ci, categories.length, editing, menu.currency)),
+      categories.length === 0 && h('p', { class: 'empty', style: 'text-align:center;padding-top:40px' }, editing ? 'Empieza añadiendo una categoría.' : text.empty),
+      categories.map((cat, ci) => categoryView(cat, ci, editing, menu.currency)),
       editing && h('button', { class: 'add big', onclick: () => categoryForm() }, '+ Añadir categoría'),
     ),
-    h('footer', { class: 'foot' }, menu.note && h('p', { class: 'note' }, menu.note), footerLink(editing)),
+    h('footer', { class: 'foot' }, note && h('p', { class: 'note' }, note), footerLink(editing)),
   );
   app.replaceChildren(view);
   watchActiveCategory();
+  if (focusedHandle) document.getElementById(focusedHandle)?.querySelector('.handle')?.focus();
 }
 
 function setupHint(user) {
@@ -864,73 +1144,81 @@ function adminBar() {
   );
 }
 
-function categoryView(cat, index, total, editing, currency) {
+function categoryView(cat, index, editing, currency) {
   const items = cat.items || [];
+  const text = UI[viewLang];
+  const inCat = (m) => m.categories.find((c) => c.id === cat.id);
   return h(
     'section',
     { class: 'category', id: `c-${cat.id}` },
     h(
       'div',
       { class: 'category-head' },
-      h('h2', {}, cat.name),
+      editing && dragHandle(`Mover la categoría ${cat.name}`, '.category', (from, to) => mutate((m) => moveTo(m.categories, from, to))),
+      h('h2', {}, tr(cat, 'name')),
       editing &&
         h(
           'div',
           { class: 'tools' },
-          h('button', { 'aria-label': 'Subir categoría', disabled: index === 0, onclick: () => mutate((m) => move(m.categories, index, -1)) }, '↑'),
-          h('button', { 'aria-label': 'Bajar categoría', disabled: index === total - 1, onclick: () => mutate((m) => move(m.categories, index, 1)) }, '↓'),
-          h('button', { onclick: () => categoryForm(cat) }, 'Renombrar'),
+          h('button', { onclick: () => categoryForm(cat) }, 'Editar'),
           h(
             'button',
             {
               class: 'danger',
-              onclick: () => {
-                const warning = items.length ? ` y sus ${items.length} productos` : '';
-                if (confirm(`¿Eliminar la categoría "${cat.name}"${warning}?`)) {
-                  mutate((m) => {
+              onclick: () =>
+                mutate(
+                  (m) => {
                     m.categories = m.categories.filter((c) => c.id !== cat.id);
-                  });
-                }
-              },
+                  },
+                  {
+                    message: `Categoría "${cat.name}" eliminada`,
+                    undo: () =>
+                      mutate((m) => {
+                        if (!m.categories.some((c) => c.id === cat.id)) m.categories.splice(index, 0, structuredClone(cat));
+                      }),
+                  },
+                ),
             },
             'Eliminar',
           ),
         ),
     ),
-    items.length === 0 && h('p', { class: 'empty' }, editing ? 'Sin productos todavía.' : 'Próximamente.'),
-    items.map((item, ii) => itemView(cat, item, ii, items.length, editing, currency)),
+    items.length === 0 && h('p', { class: 'empty' }, editing ? 'Sin productos todavía.' : text.soon),
+    items.map((item, ii) => itemView(inCat, item, ii, editing, currency)),
     editing && h('button', { class: 'add', onclick: () => itemForm(cat.id) }, '+ Añadir producto'),
   );
 }
 
-function itemView(cat, item, index, total, editing, currency) {
+function itemView(inCat, item, index, editing, currency) {
   const out = item.available === false;
   const variants = item.variants || [];
-  const inCat = (m) => m.categories.find((c) => c.id === cat.id);
+  const tags = (item.tags || []).filter((tag) => TAGS.includes(tag));
+  const text = UI[viewLang];
+  const desc = tr(item, 'desc');
   return h(
     'article',
-    { class: out ? 'item out' : 'item' },
+    { class: out ? 'item out' : 'item', id: `i-${item.id}` },
     h(
       'div',
       { class: 'item-row' },
-      h('span', { class: 'item-name' }, item.name),
-      out && h('span', { class: 'badge' }, 'Agotado'),
+      editing && dragHandle(`Mover ${item.name}`, '.item', (from, to) => mutate((m) => moveTo(inCat(m)?.items, from, to))),
+      h('span', { class: 'item-name' }, tr(item, 'name')),
+      out && h('span', { class: 'badge' }, text.soldOut),
       variants.length === 0 && h('span', { class: 'item-price' }, formatPrice(item.price, currency)),
     ),
-    item.desc && h('p', { class: 'item-desc' }, item.desc),
+    tags.length > 0 && h('ul', { class: 'tags' }, tags.map((tag) => h('li', { class: `tag tag-${tag}` }, text.tags[tag]))),
+    desc && h('p', { class: 'item-desc' }, desc),
     variants.length > 0 &&
       h(
         'ul',
         { class: 'variants' },
-        variants.map((v) => h('li', {}, h('span', {}, v.label), h('span', { class: 'item-price' }, formatPrice(v.price, currency)))),
+        variants.map((v) => h('li', {}, h('span', {}, tr(v, 'label')), h('span', { class: 'item-price' }, formatPrice(v.price, currency)))),
       ),
     editing &&
       h(
         'div',
         { class: 'tools' },
-        h('button', { 'aria-label': 'Subir producto', disabled: index === 0, onclick: () => mutate((m) => move(inCat(m).items, index, -1)) }, '↑'),
-        h('button', { 'aria-label': 'Bajar producto', disabled: index === total - 1, onclick: () => mutate((m) => move(inCat(m).items, index, 1)) }, '↓'),
-        h('button', { onclick: () => itemForm(cat.id, item) }, 'Editar'),
+        h('button', { onclick: () => itemForm(inCat(state.menu).id, item) }, 'Editar'),
         h(
           'button',
           {
@@ -946,14 +1234,21 @@ function itemView(cat, item, index, total, editing, currency) {
           'button',
           {
             class: 'danger',
-            onclick: () => {
-              if (confirm(`¿Eliminar "${item.name}"?`)) {
-                mutate((m) => {
+            onclick: () =>
+              mutate(
+                (m) => {
                   const c = inCat(m);
                   c.items = c.items.filter((i) => i.id !== item.id);
-                });
-              }
-            },
+                },
+                {
+                  message: `"${item.name}" eliminado`,
+                  undo: () =>
+                    mutate((m) => {
+                      const c = inCat(m);
+                      if (c && !c.items.some((i) => i.id === item.id)) c.items.splice(index, 0, structuredClone(item));
+                    }),
+                },
+              ),
           },
           'Eliminar',
         ),
@@ -964,7 +1259,7 @@ function itemView(cat, item, index, total, editing, currency) {
 function watchActiveCategory() {
   const links = [...app.querySelectorAll('.cats a')];
   if (!links.length || !('IntersectionObserver' in window)) return;
-  const byId = new Map(links.map((a) => [a.getAttribute('href').slice(1), a]));
+  const byId = new Map(links.map((a) => [a.dataset.target, a]));
   navObserver = new IntersectionObserver(
     (entries) => {
       for (const entry of entries) {
@@ -983,6 +1278,9 @@ function watchActiveCategory() {
 // ---------- Arranque ----------
 
 async function start() {
+  // Las direcciones antiguas (?m=atono) pasan al formato limpio (/atono).
+  if (new URLSearchParams(location.search).has('m')) history.replaceState(null, '', menuUrl(slug));
+
   store = await createStore(CONFIG);
 
   // 1) Pinta al instante la última copia guardada en este dispositivo.

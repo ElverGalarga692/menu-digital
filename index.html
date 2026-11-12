@@ -5,6 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#E8E3D0">
   <title>Menú</title>
+  <!--
+    Este archivo y 404.html deben ser idénticos: 404.html es el que atiende
+    las direcciones limpias (/atono) en GitHub Pages.
+  -->
+  <script>
+    // Fija la carpeta del sitio para que estilos y scripts carguen igual desde
+    // /atono que desde la portada: '/repo/' en GitHub Pages, '/' con dominio propio.
+    (function () {
+      var onGitHub = location.hostname.slice(-10) === '.github.io';
+      var base = document.createElement('base');
+      base.href = onGitHub ? '/' + location.pathname.split('/')[1] + '/' : '/';
+      document.head.appendChild(base);
+    })();
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="css/styles.css">

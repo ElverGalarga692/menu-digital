@@ -1,7 +1,7 @@
 # Menú digital
 
 Plantilla de menú para cafeterías y restaurantes. Un solo sitio sirve
-muchos menús: cada local tiene su dirección (`?m=identificador`), su logo,
+muchos menús: cada local tiene su dirección (`/identificador`), su logo,
 sus colores y su moneda, y su administrador lo edita desde la misma página.
 
 - Sin frameworks ni paso de compilación: HTML, CSS y JavaScript.
@@ -46,7 +46,16 @@ producción.
 ## Uso
 
 - **Editar**: "Administrar" (al pie) → iniciar sesión. Se pueden añadir,
-  editar, reordenar, marcar como agotado y eliminar productos y categorías.
+  editar, marcar como agotado y eliminar productos y categorías.
+- **Reordenar**: arrastra el asa (⠿) de un producto o categoría; con
+  teclado, enfoca el asa y usa las flechas arriba/abajo.
+- **Deshacer**: al eliminar un producto o categoría aparece "Deshacer"
+  durante unos segundos.
+- **Etiquetas**: al editar un producto se marcan Recomendado, Nuevo,
+  Vegano, Sin gluten o Picante.
+- **Segundo idioma**: "Ajustes" → "Segundo idioma". Aparecen campos de
+  traducción en productos, categorías y ajustes, y el cliente ve un
+  selector (ES / EN…). Lo que no esté traducido se muestra en español.
 - **Tamaños u opciones**: al editar un producto, "Añadir opción" permite
   varios precios (Chico / Grande, Caliente / Frío…).
 - **Identidad del negocio**: "Ajustes" → nombre, logo (se sube desde la
@@ -61,10 +70,39 @@ producción.
   (paso 3) y añade su correo en "Ajustes" → "Correos que pueden editar
   este menú". Ese usuario solo podrá editar su menú.
 
+## Direcciones
+
+- Cada menú vive en `/identificador` (por ejemplo `/atono`). Las
+  direcciones antiguas `?m=identificador` siguen funcionando.
+- La portada (`/`) muestra el menú `defaultMenu` de `js/config.js`.
+- `404.html` es una copia exacta de `index.html`: es lo que permite las
+  direcciones limpias en GitHub Pages. **Si cambias uno, copia el otro.**
+  En Cloudflare Pages esa función la cumple el archivo `_redirects`.
+
+## Pasar a Cloudflare Pages y usar dominio propio
+
+1. En <https://dash.cloudflare.com> → **Workers & Pages → Create → Pages →
+   Connect to Git** y elige este repositorio.
+2. Configuración de compilación: **Framework preset: None**, comando de
+   compilación vacío, directorio de salida `/`. Desplegar.
+3. El sitio queda en `https://NOMBRE.pages.dev`. Cada `git push` a `main`
+   se publica solo.
+4. Dominio propio: en el proyecto → **Custom domains → Set up a domain**
+   y sigue los pasos (lo más simple es que el dominio esté en Cloudflare).
+5. En Firebase → **Authentication → Settings → Authorized domains** añade
+   `NOMBRE.pages.dev` y tu dominio; sin esto el login falla ahí.
+6. Opcional, un dominio por local: en `js/config.js` → `domains`, indica
+   qué menú abre la portada de cada dominio, por ejemplo
+   `{ 'menu.atono.com': 'atono' }`.
+7. Vuelve a generar los QR desde el botón "QR" entrando por el dominio
+   nuevo, porque el QR lleva la dirección desde la que se genera.
+
 ## Estructura
 
 ```
-index.html
+index.html            la página
+404.html              copia de index.html (direcciones limpias en GitHub Pages)
+_redirects            direcciones limpias en Cloudflare Pages
 css/styles.css
 js/config.js          configuración (menú por defecto, Firebase)
 js/app.js             interfaz: vista cliente y modo edición

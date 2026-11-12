@@ -13,6 +13,7 @@ export function blankMenu(name) {
     note: '',
     logoUrl: '',
     currency: '$',
+    lang2: '',
     theme: { ...DEFAULT_THEME },
     owners: [],
     categories: [],

@@ -306,3 +306,79 @@ dialog p { margin: 0; }
 .logo-preview img { max-width: 160px; max-height: 110px; }
 
 dialog .link { justify-self: start; padding-left: 0; }
+
+/* ---------- Idiomas ---------- */
+
+.langs { display: flex; justify-content: flex-end; gap: 4px; max-width: 600px; margin: -22px auto 14px; }
+.langs button {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 11px;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  min-height: 30px;
+}
+.langs button[aria-pressed='true'] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+/* ---------- Etiquetas de producto ---------- */
+
+.tags { list-style: none; display: flex; flex-wrap: wrap; gap: 5px; margin: 5px 0 2px; padding: 0; }
+.tag {
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+.tag-recomendado { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+.tag-nuevo { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+.tag-vegano { color: color-mix(in srgb, #2f8a3a 75%, var(--ink)); border-color: currentColor; }
+.tag-picante { color: color-mix(in srgb, #c0392b 80%, var(--ink)); border-color: currentColor; }
+.item.out .tags { opacity: 0.45; }
+
+.tag-options { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.tag-option { display: flex; align-items: center; gap: 7px; color: var(--ink); font-size: 0.95rem; }
+.tag-option input { width: 18px; height: 18px; }
+
+/* ---------- Reordenar arrastrando ---------- */
+
+.handle {
+  flex: none;
+  align-self: center;
+  width: 34px;
+  height: 34px;
+  margin-left: -6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.dragging { background: var(--surface); box-shadow: 0 6px 22px rgb(0 0 0 / 0.18); border-radius: 8px; position: relative; z-index: 2; }
+.dragging .handle { cursor: grabbing; }
+.editing .category-head .tools { width: auto; margin-left: auto; }
+.editing .category-head h2 { flex: 1; min-width: 0; }
+
+/* ---------- Aviso con "Deshacer" ---------- */
+
+.toast.has-action { pointer-events: auto; display: flex; align-items: center; gap: 12px; padding-right: 8px; }
+.toast.has-action button {
+  background: var(--bg);
+  color: var(--ink);
+  border: 0;
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+/* Traducción de una opción: ocupa su propia línea bajo nombre y precio. */
+.variant-row .variant-t { grid-column: 1 / -1; }

@@ -7,6 +7,10 @@ export const CONFIG = {
   // Menú que se muestra cuando la URL no trae ?m=...
   defaultMenu: 'atono',
 
+  // Dominios propios: qué menú se muestra en la portada de cada dominio.
+  // Ejemplo: { 'menu.atono.com': 'atono', 'carta.otrolocal.com': 'otro-local' }
+  domains: {},
+
   // Claves públicas por diseño: la seguridad la dan las reglas de Firestore.
   firebase: {
     apiKey: 'AIzaSyDS6zoYy2MI8Pl42wNgXuOzZSD9osbuyRw',
