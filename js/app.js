@@ -6,10 +6,35 @@ const cleanSlug = (s) => String(s || '').toLowerCase().trim().replace(/[^a-z0-9-
 const slug = cleanSlug(new URLSearchParams(location.search).get('m')) || CONFIG.defaultMenu;
 const menuUrl = (s) => `${location.origin}${location.pathname}?m=${s}`;
 
+// Tipografías disponibles por negocio (Google Fonts). `head` se usa en
+// títulos y nombres de producto; `body` en el resto.
+const FONTS = {
+  jost: { label: 'Jost · geométrica', head: 'Jost', body: 'Jost', query: 'Jost:wght@400;500;600' },
+  poppins: { label: 'Poppins · moderna', head: 'Poppins', body: 'Poppins', query: 'Poppins:wght@400;500;600' },
+  nunito: { label: 'Nunito · redondeada', head: 'Nunito', body: 'Nunito', query: 'Nunito:wght@400;600;700' },
+  playfair: {
+    label: 'Playfair Display · clásica',
+    head: 'Playfair Display',
+    body: 'Lora',
+    query: 'Playfair+Display:wght@500;600&family=Lora:wght@400;500;600',
+    fallback: 'Georgia, serif',
+  },
+  lora: { label: 'Lora · serif cálida', head: 'Lora', body: 'Lora', query: 'Lora:wght@400;500;600', fallback: 'Georgia, serif' },
+  oswald: {
+    label: 'Oswald · condensada',
+    head: 'Oswald',
+    body: 'Source Sans 3',
+    query: 'Oswald:wght@400;500;600&family=Source+Sans+3:wght@400;500;600',
+  },
+};
+const SANS_FALLBACK = "'Century Gothic', 'Avenir Next', 'Segoe UI', system-ui, sans-serif";
+
 const app = document.getElementById('app');
 const state = { menu: undefined, user: null, editing: false, error: null };
 let store;
 let navObserver;
+let adminPromise;
+let live = false;
 
 // ---------- Utilidades de DOM ----------
 
@@ -45,20 +70,64 @@ const isHexColor = (c) => /^#[0-9a-f]{6}$/i.test(c || '');
 
 function applyTheme(menu) {
   const theme = { ...DEFAULT_THEME, ...(menu?.theme || {}) };
+  const root = document.documentElement.style;
   for (const key of ['bg', 'ink', 'accent']) {
-    document.documentElement.style.setProperty(`--${key}`, isHexColor(theme[key]) ? theme[key] : DEFAULT_THEME[key]);
+    root.setProperty(`--${key}`, isHexColor(theme[key]) ? theme[key] : DEFAULT_THEME[key]);
   }
+  const font = FONTS[theme.font] || FONTS.jost;
+  const fallback = font.fallback || SANS_FALLBACK;
+  root.setProperty('--font-head', `'${font.head}', ${fallback}`);
+  root.setProperty('--font-body', `'${font.body}', ${fallback}`);
+  const href = `https://fonts.googleapis.com/css2?family=${font.query}&display=swap`;
+  let link = document.getElementById('menu-font');
+  if (!link) {
+    link = h('link', { id: 'menu-font', rel: 'stylesheet' });
+    document.head.append(link);
+  }
+  if (link.getAttribute('href') !== href) link.setAttribute('href', href);
+
   document.querySelector('meta[name="theme-color"]').content = isHexColor(theme.bg) ? theme.bg : DEFAULT_THEME.bg;
   document.title = menu?.name ? `${menu.name} · Menú` : 'Menú';
 }
 
-// Solo se aceptan logos servidos por https o rutas relativas del propio sitio.
+// Logos admitidos: imagen subida desde la página (data:), dirección https
+// o ruta relativa del propio sitio.
 function safeLogoUrl(url) {
   const u = String(url || '').trim();
   if (!u) return '';
+  if (/^data:image\/(png|jpeg|webp|svg\+xml);base64,[a-z0-9+/=]+$/i.test(u)) return u;
   if (/^https:\/\//i.test(u)) return u;
   if (/^[a-z0-9_\-./]+$/i.test(u) && !u.startsWith('//')) return u;
   return '';
+}
+
+// ---------- Caché local (para abrir al instante) ----------
+
+const cacheKey = `menu-digital:cache:${slug}`;
+
+function readCache() {
+  try {
+    return JSON.parse(localStorage.getItem(cacheKey)) || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeCache(menu) {
+  if (store?.mode === 'demo') return;
+  try {
+    if (menu) localStorage.setItem(cacheKey, JSON.stringify(menu));
+    else localStorage.removeItem(cacheKey);
+  } catch {
+    // Sin almacenamiento: simplemente no hay caché.
+  }
+}
+
+function setMenu(menu) {
+  state.menu = menu;
+  state.error = null;
+  writeCache(menu);
+  render();
 }
 
 // ---------- Permisos ----------
@@ -79,6 +148,7 @@ async function mutate(change) {
   render();
   try {
     await store.saveMenu(slug, next);
+    writeCache(next);
     toast('Guardado');
   } catch (err) {
     state.menu = previous;
@@ -93,8 +163,12 @@ function friendlyError(err) {
   if (code.includes('invalid-credential') || code.includes('wrong-password') || code.includes('user-not-found')) {
     return 'correo o contraseña incorrectos.';
   }
+  if (code.includes('invalid-email')) return 'el correo no es válido.';
   if (code.includes('too-many-requests')) return 'demasiados intentos, espera unos minutos.';
   if (code.includes('network') || code.includes('unavailable')) return 'sin conexión.';
+  if (code.includes('invalid-argument') || /exceeds the maximum/i.test(err?.message || '')) {
+    return 'el menú ocupa demasiado; prueba con un logo más ligero.';
+  }
   return err?.message || 'error desconocido.';
 }
 
@@ -119,11 +193,15 @@ function openDialog(build) {
   return dialog;
 }
 
-function openForm({ title, hint, fields, submitLabel = 'Guardar', onSubmit, onDelete, deleteLabel = 'Eliminar' }) {
+// Tipos de campo: text (por defecto), email, password, number, color,
+// textarea, checkbox, select ({ options: [[valor, etiqueta]] }) y
+// custom ({ widget: { node, value() } }).
+function openForm({ title, hint, fields, submitLabel = 'Guardar', onSubmit, footer }) {
   openDialog((close) => {
     const errorBox = h('p', { class: 'error', role: 'alert' });
     const inputs = {};
     const rows = fields.map((f) => {
+      if (f.type === 'custom') return f.widget.node;
       const common = { name: f.name, required: f.required, placeholder: f.placeholder };
       let input;
       if (f.type === 'textarea') {
@@ -132,6 +210,9 @@ function openForm({ title, hint, fields, submitLabel = 'Guardar', onSubmit, onDe
       } else if (f.type === 'checkbox') {
         input = h('input', { type: 'checkbox', name: f.name });
         input.checked = Boolean(f.value);
+      } else if (f.type === 'select') {
+        input = h('select', { name: f.name }, f.options.map(([value, label]) => h('option', { value }, label)));
+        input.value = f.value ?? f.options[0][0];
       } else {
         input = h('input', {
           ...common,
@@ -139,7 +220,7 @@ function openForm({ title, hint, fields, submitLabel = 'Guardar', onSubmit, onDe
           step: f.step,
           min: f.min,
           maxlength: f.maxlength || 200,
-          inputmode: f.type === 'number' ? 'decimal' : null,
+          inputmode: f.type === 'number' ? 'decimal' : f.inputmode,
           autocomplete: f.autocomplete || 'off',
         });
         input.value = f.value ?? '';
@@ -151,19 +232,20 @@ function openForm({ title, hint, fields, submitLabel = 'Guardar', onSubmit, onDe
     });
 
     const submit = h('button', { class: 'btn primary', type: 'submit' }, submitLabel);
-    const form = h(
+    return h(
       'form',
       {
         onsubmit: async (e) => {
           e.preventDefault();
-          const values = {};
-          for (const f of fields) {
-            const input = inputs[f.name];
-            values[f.name] = f.type === 'checkbox' ? input.checked : input.value.trim();
-          }
           submit.disabled = true;
           errorBox.textContent = '';
           try {
+            const values = {};
+            for (const f of fields) {
+              if (f.type === 'custom') values[f.name] = f.widget.value();
+              else if (f.type === 'checkbox') values[f.name] = inputs[f.name].checked;
+              else values[f.name] = inputs[f.name].value.trim();
+            }
             await onSubmit(values);
             close();
           } catch (err) {
@@ -176,34 +258,56 @@ function openForm({ title, hint, fields, submitLabel = 'Guardar', onSubmit, onDe
       hint && h('p', { class: 'hint' }, hint),
       rows,
       errorBox,
-      h(
-        'div',
-        { class: 'actions' },
-        onDelete &&
-          h(
-            'button',
-            {
-              class: 'btn danger',
-              type: 'button',
-              onclick: () => {
-                if (onDelete()) close();
-              },
-            },
-            deleteLabel,
-          ),
-        h('button', { class: 'btn', type: 'button', onclick: close }, 'Cancelar'),
-        submit,
-      ),
+      footer && footer(inputs, errorBox),
+      h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'button', onclick: close }, 'Cancelar'), submit),
     );
-    return form;
   });
 }
 
 function parsePrice(text) {
-  if (text === '') return '';
+  if (text === '' || text == null) return '';
   const n = Number(String(text).replace(',', '.'));
   if (Number.isNaN(n) || n < 0) throw new Error('El precio no es válido.');
   return n;
+}
+
+// Editor de tamaños u opciones de un producto (Chico / Grande…).
+function variantsWidget(initial) {
+  const list = h('div', { class: 'variants-edit' });
+  const addRow = (v = {}) => {
+    const label = h('input', { type: 'text', placeholder: 'Ej. Grande', maxlength: 30, 'aria-label': 'Nombre de la opción' });
+    label.value = v.label ?? '';
+    const price = h('input', { type: 'number', step: 'any', min: 0, inputmode: 'decimal', placeholder: 'Precio', 'aria-label': 'Precio de la opción' });
+    price.value = v.price ?? '';
+    const row = h(
+      'div',
+      { class: 'variant-row' },
+      label,
+      price,
+      h('button', { type: 'button', class: 'btn', 'aria-label': 'Quitar opción', onclick: () => row.remove() }, '×'),
+    );
+    list.append(row);
+    return label;
+  };
+  initial.forEach(addRow);
+  const node = h(
+    'div',
+    { class: 'field' },
+    'Tamaños u opciones (opcional)',
+    list,
+    h('button', { type: 'button', class: 'add', onclick: () => addRow().focus() }, '+ Añadir opción'),
+    h('span', { class: 'hint' }, 'Si añades opciones, se muestran en lugar del precio único.'),
+  );
+  return {
+    node,
+    value: () =>
+      [...list.children]
+        .map((row) => {
+          const [label, price] = row.querySelectorAll('input');
+          return { label: label.value.trim(), price: price.value.trim() };
+        })
+        .filter((v) => v.label || v.price !== ''),
+  };
 }
 
 function itemForm(catId, item) {
@@ -212,15 +316,20 @@ function itemForm(catId, item) {
     fields: [
       { name: 'name', label: 'Nombre', value: item?.name, required: true, maxlength: 80 },
       { name: 'price', label: `Precio (${state.menu.currency || 'sin símbolo'})`, type: 'number', step: 'any', min: 0, value: item?.price },
+      { name: 'variants', type: 'custom', widget: variantsWidget(item?.variants || []) },
       { name: 'desc', label: 'Descripción (opcional)', type: 'textarea', value: item?.desc, maxlength: 300 },
       { name: 'available', label: 'Disponible', type: 'checkbox', value: item ? item.available !== false : true },
     ],
     onSubmit: (v) => {
       const price = parsePrice(v.price);
+      const variants = v.variants.map((x) => {
+        if (!x.label) throw new Error('Cada opción necesita un nombre.');
+        return { label: x.label, price: parsePrice(x.price) };
+      });
       return mutate((m) => {
         const cat = m.categories.find((c) => c.id === catId);
         if (!cat) return;
-        const data = { name: v.name, price, desc: v.desc, available: v.available };
+        const data = { name: v.name, price, variants, desc: v.desc, available: v.available };
         const existing = item && cat.items.find((i) => i.id === item.id);
         if (existing) Object.assign(existing, data);
         else cat.items.push({ id: newId(), ...data });
@@ -242,18 +351,126 @@ function categoryForm(cat) {
   });
 }
 
+// ---------- Logo ----------
+
+const MAX_LOGO_CHARS = 350_000;
+
+function readAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('No se pudo leer el archivo.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('El archivo no es una imagen válida.'));
+    img.src = src;
+  });
+}
+
+// Reduce la imagen para que quepa holgadamente dentro del menú guardado.
+async function fileToLogo(file) {
+  const original = await readAsDataUrl(file);
+  if (file.type === 'image/svg+xml') {
+    if (original.length > MAX_LOGO_CHARS) throw new Error('El SVG pesa demasiado (máximo ~250 KB).');
+    return original;
+  }
+  const img = await loadImage(original);
+  for (const maxSide of [640, 420, 280]) {
+    const scale = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+    const canvas = h('canvas', {
+      width: Math.max(1, Math.round(img.naturalWidth * scale)),
+      height: Math.max(1, Math.round(img.naturalHeight * scale)),
+    });
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    let out = canvas.toDataURL('image/webp', 0.9);
+    if (!out.startsWith('data:image/webp')) out = canvas.toDataURL('image/png');
+    if (out.length <= MAX_LOGO_CHARS) return out;
+  }
+  throw new Error('La imagen pesa demasiado incluso reducida; prueba con otra más simple.');
+}
+
+function logoWidget(current) {
+  let value = current || '';
+  const preview = h('div', { class: 'logo-preview' });
+  const error = h('span', { class: 'error', role: 'alert' });
+  const show = () => {
+    const url = safeLogoUrl(value);
+    preview.replaceChildren(url ? h('img', { src: url, alt: 'Logo actual' }) : h('span', { class: 'hint' }, 'Sin logo: se muestra el nombre del local.'));
+  };
+  const file = h('input', {
+    type: 'file',
+    accept: 'image/png,image/jpeg,image/webp,image/svg+xml',
+    hidden: true,
+    'aria-label': 'Archivo del logo',
+    onchange: async () => {
+      const chosen = file.files[0];
+      if (!chosen) return;
+      error.textContent = '';
+      try {
+        value = await fileToLogo(chosen);
+        show();
+      } catch (err) {
+        error.textContent = err.message;
+      }
+      file.value = '';
+    },
+  });
+  show();
+  return {
+    node: h(
+      'div',
+      { class: 'field' },
+      'Logo',
+      preview,
+      file,
+      h(
+        'div',
+        { class: 'tools' },
+        h('button', { type: 'button', onclick: () => file.click() }, 'Subir imagen'),
+        h(
+          'button',
+          {
+            type: 'button',
+            onclick: () => {
+              value = '';
+              show();
+            },
+          },
+          'Quitar logo',
+        ),
+      ),
+      error,
+    ),
+    value: () => value,
+  };
+}
+
+// ---------- Ajustes ----------
+
 function settingsForm() {
   const m = state.menu;
   const theme = { ...DEFAULT_THEME, ...(m.theme || {}) };
+  const contact = m.contact || {};
   const fields = [
     { name: 'name', label: 'Nombre del local', value: m.name, required: true, maxlength: 60 },
-    { name: 'tagline', label: 'Subtítulo (opcional)', value: m.tagline, maxlength: 80, placeholder: 'Ej. Café de especialidad' },
+    { name: 'tagline', label: 'Subtítulo (se muestra si no hay logo)', value: m.tagline, maxlength: 80, placeholder: 'Ej. Café de especialidad' },
+    { name: 'logoUrl', type: 'custom', widget: logoWidget(m.logoUrl) },
     { name: 'currency', label: 'Símbolo de moneda', value: m.currency, maxlength: 6, placeholder: '$' },
-    { name: 'note', label: 'Nota al pie (horario, wifi, dirección…)', type: 'textarea', value: m.note, maxlength: 400 },
-    { name: 'logoUrl', label: 'Logo: dirección https o ruta del sitio (vacío = mostrar el nombre)', value: m.logoUrl, maxlength: 500 },
+    { name: 'font', label: 'Tipografía', type: 'select', value: FONTS[theme.font] ? theme.font : 'jost', options: Object.entries(FONTS).map(([key, f]) => [key, f.label]) },
     { name: 'bg', label: 'Color de fondo', type: 'color', value: theme.bg },
     { name: 'ink', label: 'Color del texto', type: 'color', value: theme.ink },
     { name: 'accent', label: 'Color de acento', type: 'color', value: theme.accent },
+    { name: 'whatsapp', label: 'WhatsApp (número con código de país)', value: contact.whatsapp, maxlength: 20, placeholder: 'Ej. 52 55 1234 5678', inputmode: 'tel' },
+    { name: 'instagram', label: 'Instagram (usuario)', value: contact.instagram, maxlength: 60, placeholder: 'Ej. atono.cafe' },
+    { name: 'address', label: 'Dirección o enlace de Google Maps', value: contact.address, maxlength: 300 },
+    { name: 'hours', label: 'Horario', type: 'textarea', value: contact.hours, maxlength: 200, placeholder: 'Ej. Lun a sáb · 8:00 a 20:00' },
+    { name: 'note', label: 'Nota al pie (wifi, avisos…)', type: 'textarea', value: m.note, maxlength: 400 },
   ];
   if (state.user?.isSuper && store.mode === 'firebase') {
     fields.push({
@@ -266,26 +483,88 @@ function settingsForm() {
   openForm({
     title: 'Ajustes del menú',
     fields,
-    onSubmit: (v) => {
-      if (v.logoUrl && !safeLogoUrl(v.logoUrl)) {
-        throw new Error('El logo debe ser una dirección https:// o una ruta del sitio (por ejemplo assets/logo.svg).');
-      }
-      return mutate((next) => {
+    onSubmit: (v) =>
+      mutate((next) => {
         Object.assign(next, { name: v.name, tagline: v.tagline, currency: v.currency, note: v.note, logoUrl: v.logoUrl });
-        next.theme = { bg: v.bg, ink: v.ink, accent: v.accent };
+        next.theme = { bg: v.bg, ink: v.ink, accent: v.accent, font: v.font };
+        next.contact = { whatsapp: v.whatsapp, instagram: v.instagram, address: v.address, hours: v.hours };
         if (v.owners !== undefined) {
           next.owners = v.owners.split(/[\s,;]+/).map((e) => e.toLowerCase()).filter(Boolean);
         }
-      });
-    },
+      }),
   });
 }
 
-function loginForm() {
+// Botones de contacto del local a partir de lo escrito en Ajustes.
+function contactLinks(contact) {
+  const links = [];
+  const whatsapp = String(contact.whatsapp || '').replace(/\D/g, '');
+  if (whatsapp) links.push(['WhatsApp', `https://wa.me/${whatsapp}`]);
+  const instagram = String(contact.instagram || '')
+    .trim()
+    .replace(/^https?:\/\/(www\.)?instagram\.com\//i, '')
+    .replace(/[^a-z0-9._]/gi, '');
+  if (instagram) links.push(['Instagram', `https://instagram.com/${instagram}`]);
+  const address = String(contact.address || '').trim();
+  if (address) {
+    const isLink = /^https:\/\//i.test(address);
+    links.push(['Cómo llegar', isLink ? address : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`]);
+  }
+  return links;
+}
+
+// ---------- Sesión ----------
+
+// Carga la parte de administración (SDK de Firebase) una sola vez.
+function startAdmin() {
+  adminPromise ||= store
+    .onAuth((user) => {
+      const wasLoggedIn = Boolean(state.user);
+      state.user = user;
+      if (user && !wasLoggedIn) state.editing = true;
+      if (!user) state.editing = false;
+      if (user) watchLive();
+      render();
+    })
+    .catch((err) => {
+      adminPromise = null;
+      throw err;
+    });
+  return adminPromise;
+}
+
+// Con sesión iniciada, el menú se actualiza en vivo.
+function watchLive() {
+  if (live) return;
+  live = true;
+  store.subscribeMenu(slug, setMenu, () => {}).catch(() => {
+    live = false;
+  });
+}
+
+async function refresh() {
+  try {
+    setMenu(await store.fetchMenu(slug));
+  } catch {
+    if (state.menu === undefined) {
+      state.error = 'No se pudo cargar el menú. Revisa tu conexión e inténtalo de nuevo.';
+      render();
+    }
+  }
+}
+
+async function loginForm() {
+  try {
+    await startAdmin();
+  } catch {
+    toast('No se pudo conectar. Revisa tu conexión e inténtalo de nuevo.', true);
+    return;
+  }
   if (store.mode === 'demo') {
     store.login();
     return;
   }
+  if (state.user) return;
   openForm({
     title: 'Acceso de administrador',
     submitLabel: 'Entrar',
@@ -294,8 +573,36 @@ function loginForm() {
       { name: 'password', label: 'Contraseña', type: 'password', required: true, autocomplete: 'current-password' },
     ],
     onSubmit: (v) => store.login(v.email, v.password),
+    footer: (inputs, messageBox) =>
+      h(
+        'button',
+        {
+          class: 'link',
+          type: 'button',
+          onclick: async (e) => {
+            const email = inputs.email.value.trim();
+            if (!email) {
+              messageBox.textContent = 'Escribe tu correo arriba y vuelve a pulsar.';
+              inputs.email.focus();
+              return;
+            }
+            e.target.disabled = true;
+            try {
+              await store.resetPassword(email);
+              messageBox.textContent = '';
+              toast('Si el correo está registrado, recibirás un enlace para cambiar la contraseña.');
+            } catch (err) {
+              messageBox.textContent = friendlyError(err);
+            }
+            e.target.disabled = false;
+          },
+        },
+        'Olvidé mi contraseña',
+      ),
   });
 }
+
+// ---------- QR y lista de menús ----------
 
 function loadScript(src) {
   return new Promise((resolve, reject) => {
@@ -410,7 +717,10 @@ function newMenuForm(existing) {
 function deleteMenu() {
   if (!confirm(`¿Eliminar por completo el menú "${state.menu.name}"? No se puede deshacer.`)) return;
   store.deleteMenu(slug).then(
-    () => toast('Menú eliminado'),
+    () => {
+      toast('Menú eliminado');
+      setMenu(null);
+    },
     (err) => toast(`No se pudo eliminar: ${friendlyError(err)}`, true),
   );
 }
@@ -445,7 +755,10 @@ function render() {
                 class: 'btn primary',
                 onclick: () => {
                   const data = slug === CONFIG.defaultMenu ? sampleMenu() : blankMenu(slug);
-                  store.saveMenu(slug, data).catch((err) => toast(friendlyError(err), true));
+                  store.saveMenu(slug, data).then(
+                    () => setMenu(data),
+                    (err) => toast(friendlyError(err), true),
+                  );
                 },
               },
               `Crear el menú "${slug}"`,
@@ -462,6 +775,9 @@ function render() {
   const editing = state.editing && canEdit();
   const categories = menu.categories || [];
   const logo = safeLogoUrl(menu.logoUrl);
+  const contact = menu.contact || {};
+  const links = contactLinks(contact);
+  const addressText = contact.address && !/^https:\/\//i.test(contact.address.trim()) ? contact.address : '';
 
   const view = h(
     'div',
@@ -473,6 +789,10 @@ function render() {
       { class: 'hero' },
       logo ? h('img', { src: logo, alt: menu.name }) : h('h1', {}, menu.name),
       menu.tagline && !logo && h('p', { class: 'tagline' }, menu.tagline),
+      (addressText || contact.hours) &&
+        h('div', { class: 'info' }, addressText && h('p', {}, addressText), contact.hours && h('p', { class: 'hours' }, contact.hours)),
+      links.length > 0 &&
+        h('div', { class: 'contact' }, links.map(([label, href]) => h('a', { href, target: '_blank', rel: 'noopener noreferrer' }, label))),
     ),
     categories.length > 1 &&
       h('nav', { class: 'cats', 'aria-label': 'Categorías' }, h('div', { class: 'cats-inner' }, categories.map((c) => h('a', { href: `#c-${c.id}` }, c.name)))),
@@ -483,12 +803,7 @@ function render() {
       categories.map((cat, ci) => categoryView(cat, ci, categories.length, editing, menu.currency)),
       editing && h('button', { class: 'add big', onclick: () => categoryForm() }, '+ Añadir categoría'),
     ),
-    h(
-      'footer',
-      { class: 'foot' },
-      menu.note && h('p', { class: 'note' }, menu.note),
-      footerLink(editing),
-    ),
+    h('footer', { class: 'foot' }, menu.note && h('p', { class: 'note' }, menu.note), footerLink(editing)),
   );
   app.replaceChildren(view);
   watchActiveCategory();
@@ -590,6 +905,7 @@ function categoryView(cat, index, total, editing, currency) {
 
 function itemView(cat, item, index, total, editing, currency) {
   const out = item.available === false;
+  const variants = item.variants || [];
   const inCat = (m) => m.categories.find((c) => c.id === cat.id);
   return h(
     'article',
@@ -599,9 +915,15 @@ function itemView(cat, item, index, total, editing, currency) {
       { class: 'item-row' },
       h('span', { class: 'item-name' }, item.name),
       out && h('span', { class: 'badge' }, 'Agotado'),
-      h('span', { class: 'item-price' }, formatPrice(item.price, currency)),
+      variants.length === 0 && h('span', { class: 'item-price' }, formatPrice(item.price, currency)),
     ),
     item.desc && h('p', { class: 'item-desc' }, item.desc),
+    variants.length > 0 &&
+      h(
+        'ul',
+        { class: 'variants' },
+        variants.map((v) => h('li', {}, h('span', {}, v.label), h('span', { class: 'item-price' }, formatPrice(v.price, currency)))),
+      ),
     editing &&
       h(
         'div',
@@ -661,34 +983,30 @@ function watchActiveCategory() {
 // ---------- Arranque ----------
 
 async function start() {
-  try {
-    store = await createStore(CONFIG);
-  } catch (err) {
-    state.error = 'No se pudo conectar con el servicio de datos. Revisa tu conexión e inténtalo de nuevo.';
-    render();
-    return;
-  }
-  store.onAuth((user) => {
-    const wasLoggedIn = Boolean(state.user);
-    state.user = user;
-    if (user && !wasLoggedIn) state.editing = true;
-    if (!user) state.editing = false;
-    render();
-  });
-  store.subscribeMenu(
-    slug,
-    (menu) => {
-      state.menu = menu;
-      state.error = null;
+  store = await createStore(CONFIG);
+
+  // 1) Pinta al instante la última copia guardada en este dispositivo.
+  if (store.mode !== 'demo') {
+    const cached = readCache();
+    if (cached) {
+      state.menu = cached;
       render();
-    },
-    (err) => {
-      if (state.menu === undefined) {
-        state.error = friendlyError(err);
-        render();
-      }
-    },
-  );
+    }
+  }
+
+  // 2) Trae la versión actual con una petición ligera.
+  const loaded = refresh();
+
+  // 3) Solo si este navegador ya administró antes, recupera la sesión.
+  if (store.adminHint()) {
+    await loaded;
+    startAdmin().catch(() => {});
+  }
+
+  // Al volver a la pestaña, el cliente ve los cambios recientes.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && !live) refresh();
+  });
 }
 
 start();

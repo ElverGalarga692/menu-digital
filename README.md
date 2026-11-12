@@ -47,8 +47,14 @@ producción.
 
 - **Editar**: "Administrar" (al pie) → iniciar sesión. Se pueden añadir,
   editar, reordenar, marcar como agotado y eliminar productos y categorías.
-- **Identidad del negocio**: "Ajustes" → nombre, logo, moneda, nota al pie
-  y los tres colores (fondo, texto, acento).
+- **Tamaños u opciones**: al editar un producto, "Añadir opción" permite
+  varios precios (Chico / Grande, Caliente / Frío…).
+- **Identidad del negocio**: "Ajustes" → nombre, logo (se sube desde la
+  página), moneda, tipografía y los tres colores (fondo, texto, acento).
+- **Datos del local**: "Ajustes" → WhatsApp, Instagram, dirección y
+  horario; aparecen como botones bajo el logo.
+- **Contraseña olvidada**: en el acceso, "Olvidé mi contraseña" envía un
+  correo para cambiarla.
 - **QR**: botón "QR" → descarga el PNG para imprimir.
 - **Otro menú** (solo superadministrador): "Menús" → "Crear menú nuevo".
 - **Dar acceso al dueño de un local**: crea su usuario en Firebase
@@ -69,5 +75,10 @@ assets/atono-logo.svg
 firestore.rules       reglas de seguridad de Firestore
 ```
 
-Los logos se pueden subir a `assets/` y referenciar como
-`assets/mi-logo.svg`, o usar una dirección `https://`.
+## Cómo carga
+
+El visitante lee el menú con una sola petición ligera y guarda una copia
+en su dispositivo, así que las siguientes visitas abren al instante. El
+SDK de Firebase solo se descarga al entrar como administrador; con sesión
+iniciada los cambios se ven en vivo, y el visitante los ve al recargar o
+volver a la pestaña.

@@ -2,14 +2,19 @@
 //  - Firebase (Firestore + Auth) cuando hay configuración.
 //  - Demo (localStorage) cuando no la hay.
 //
+// La lectura pública (fetchMenu) es una petición ligera; el SDK de Firebase
+// (pesado) solo se descarga cuando alguien entra como administrador.
+//
 // Interfaz:
 //   mode                      'firebase' | 'demo'
-//   subscribeMenu(slug, cb)   cb(menu | null); devuelve función para cancelar
+//   adminHint()               true si este navegador ya inició sesión antes
+//   fetchMenu(slug)           menú | null (lectura pública, sin SDK)
+//   subscribeMenu(slug, cb)   cambios en vivo; devuelve función para cancelar
 //   saveMenu(slug, menu)      sobrescribe el menú
 //   deleteMenu(slug)
 //   listMenus()               [{ slug, name }]
-//   onAuth(cb)                cb(user | null), user = { email, isSuper }
-//   login(email, password) / logout()
+//   onAuth(cb)                cb(user | null), user = { email, isSuper, superCheck }
+//   login(email, password) / logout() / resetPassword(email)
 
 import { sampleMenu } from './seed.js';
 
@@ -19,44 +24,103 @@ export async function createStore(config) {
   return config.firebase ? firebaseStore(config.firebase) : demoStore(config);
 }
 
-async function firebaseStore(firebaseConfig) {
-  const base = `https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}`;
-  const [appMod, fs, authMod] = await Promise.all([
-    import(`${base}/firebase-app.js`),
-    import(`${base}/firebase-firestore.js`),
-    import(`${base}/firebase-auth.js`),
-  ]);
-  const app = appMod.initializeApp(firebaseConfig);
-  const db = fs.getFirestore(app);
-  const auth = authMod.getAuth(app);
-  const menuRef = (slug) => fs.doc(db, 'menus', slug);
+// Convierte el formato tipado de la API REST de Firestore a valores normales.
+function decodeValue(v) {
+  if ('stringValue' in v) return v.stringValue;
+  if ('integerValue' in v) return Number(v.integerValue);
+  if ('doubleValue' in v) return v.doubleValue;
+  if ('booleanValue' in v) return v.booleanValue;
+  if ('arrayValue' in v) return (v.arrayValue.values || []).map(decodeValue);
+  if ('mapValue' in v) return decodeFields(v.mapValue.fields || {});
+  if ('timestampValue' in v) return v.timestampValue;
+  return null;
+}
+
+function decodeFields(fields) {
+  const out = {};
+  for (const [key, value] of Object.entries(fields)) out[key] = decodeValue(value);
+  return out;
+}
+
+function firebaseStore(firebaseConfig) {
+  const HINT = 'menu-digital:admin';
+  const setHint = (on) => {
+    try {
+      if (on) localStorage.setItem(HINT, '1');
+      else localStorage.removeItem(HINT);
+    } catch {
+      // Sin almacenamiento: solo se pierde el atajo de sesión.
+    }
+  };
+
+  let sdkPromise;
+  const sdk = () => {
+    sdkPromise ||= (async () => {
+      const base = `https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}`;
+      const [appMod, fs, authMod] = await Promise.all([
+        import(`${base}/firebase-app.js`),
+        import(`${base}/firebase-firestore.js`),
+        import(`${base}/firebase-auth.js`),
+      ]);
+      const app = appMod.initializeApp(firebaseConfig);
+      return { fs, authMod, db: fs.getFirestore(app), auth: authMod.getAuth(app) };
+    })().catch((err) => {
+      sdkPromise = null; // Permite reintentar si falló la descarga.
+      throw err;
+    });
+    return sdkPromise;
+  };
 
   return {
     mode: 'firebase',
 
-    subscribeMenu(slug, cb, onError) {
+    adminHint() {
+      try {
+        return localStorage.getItem(HINT) === '1';
+      } catch {
+        return false;
+      }
+    },
+
+    async fetchMenu(slug) {
+      const url =
+        `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}` +
+        `/databases/(default)/documents/menus/${encodeURIComponent(slug)}?key=${firebaseConfig.apiKey}`;
+      const res = await fetch(url, { cache: 'no-store' });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error(`El servicio de datos respondió ${res.status}.`);
+      return decodeFields((await res.json()).fields || {});
+    },
+
+    async subscribeMenu(slug, cb, onError) {
+      const { fs, db } = await sdk();
       return fs.onSnapshot(
-        menuRef(slug),
+        fs.doc(db, 'menus', slug),
         (snap) => cb(snap.exists() ? snap.data() : null),
         (err) => onError && onError(err),
       );
     },
 
-    saveMenu(slug, menu) {
-      return fs.setDoc(menuRef(slug), { ...menu, updatedAt: Date.now() });
+    async saveMenu(slug, menu) {
+      const { fs, db } = await sdk();
+      return fs.setDoc(fs.doc(db, 'menus', slug), { ...menu, updatedAt: Date.now() });
     },
 
-    deleteMenu(slug) {
-      return fs.deleteDoc(menuRef(slug));
+    async deleteMenu(slug) {
+      const { fs, db } = await sdk();
+      return fs.deleteDoc(fs.doc(db, 'menus', slug));
     },
 
     async listMenus() {
+      const { fs, db } = await sdk();
       const snap = await fs.getDocs(fs.collection(db, 'menus'));
       return snap.docs.map((d) => ({ slug: d.id, name: d.data().name || d.id }));
     },
 
-    onAuth(cb) {
+    async onAuth(cb) {
+      const { fs, authMod, db, auth } = await sdk();
       return authMod.onAuthStateChanged(auth, async (fbUser) => {
+        setHint(Boolean(fbUser));
         if (!fbUser) return cb(null);
         const email = (fbUser.email || '').toLowerCase();
         // superCheck explica por qué no se es superadministrador:
@@ -72,12 +136,20 @@ async function firebaseStore(firebaseConfig) {
       });
     },
 
-    login(email, password) {
+    async login(email, password) {
+      const { authMod, auth } = await sdk();
       return authMod.signInWithEmailAndPassword(auth, email.trim(), password);
     },
 
-    logout() {
+    async logout() {
+      const { authMod, auth } = await sdk();
       return authMod.signOut(auth);
+    },
+
+    async resetPassword(email) {
+      const { authMod, auth } = await sdk();
+      auth.languageCode = 'es';
+      return authMod.sendPasswordResetEmail(auth, email.trim());
     },
   };
 }
@@ -113,7 +185,7 @@ function demoStore(config) {
     const menu = read()[slug] || null;
     (menuSubs.get(slug) || []).forEach((cb) => cb(menu && structuredClone(menu)));
   };
-  const currentUser = () => (memory.admin ? { email: 'demo', isSuper: true } : null);
+  const currentUser = () => (memory.admin ? { email: 'demo', isSuper: true, superCheck: 'ok' } : null);
 
   try {
     memory.admin = sessionStorage.getItem(SESSION) === '1';
@@ -133,10 +205,18 @@ function demoStore(config) {
   return {
     mode: 'demo',
 
-    subscribeMenu(slug, cb) {
+    adminHint() {
+      return memory.admin;
+    },
+
+    async fetchMenu(slug) {
+      const menu = read()[slug];
+      return menu ? structuredClone(menu) : null;
+    },
+
+    async subscribeMenu(slug, cb) {
       if (!menuSubs.has(slug)) menuSubs.set(slug, new Set());
       menuSubs.get(slug).add(cb);
-      queueMicrotask(() => emit(slug));
       return () => menuSubs.get(slug).delete(cb);
     },
 
@@ -156,7 +236,7 @@ function demoStore(config) {
       return Object.entries(read()).map(([slug, m]) => ({ slug, name: m.name || slug }));
     },
 
-    onAuth(cb) {
+    async onAuth(cb) {
       authSubs.add(cb);
       queueMicrotask(() => cb(currentUser()));
       return () => authSubs.delete(cb);
@@ -169,5 +249,7 @@ function demoStore(config) {
     async logout() {
       setAdmin(false);
     },
+
+    async resetPassword() {},
   };
 }
