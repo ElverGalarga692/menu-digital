@@ -451,6 +451,7 @@ function render() {
               `Crear el menú "${slug}"`,
             ),
           ),
+        user && !user.isSuper && h('p', { class: 'hint' }, setupHint(user)),
         h('p', {}, user ? h('button', { class: 'link', onclick: () => store.logout() }, `Cerrar sesión (${user.email})`) : h('button', { class: 'link', onclick: loginForm }, 'Administrar')),
       ),
     );
@@ -491,6 +492,13 @@ function render() {
   );
   app.replaceChildren(view);
   watchActiveCategory();
+}
+
+function setupHint(user) {
+  if (user.superCheck === 'denied') {
+    return 'Sesión iniciada, pero las reglas de Firestore aún no están publicadas: pega el contenido de firestore.rules en Firestore → Rules y pulsa Publicar.';
+  }
+  return `Sesión iniciada, pero esta cuenta no es superadministrador: en Firestore crea la colección "admins" con un documento cuyo ID sea exactamente ${user.email}`;
 }
 
 function footerLink(editing) {

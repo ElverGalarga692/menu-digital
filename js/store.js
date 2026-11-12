@@ -59,13 +59,16 @@ async function firebaseStore(firebaseConfig) {
       return authMod.onAuthStateChanged(auth, async (fbUser) => {
         if (!fbUser) return cb(null);
         const email = (fbUser.email || '').toLowerCase();
-        let isSuper = false;
+        // superCheck explica por qué no se es superadministrador:
+        // 'missing' = falta el documento admins/{correo};
+        // 'denied'  = las reglas de Firestore no permiten leerlo (sin publicar).
+        let superCheck = 'missing';
         try {
-          isSuper = (await fs.getDoc(fs.doc(db, 'admins', email))).exists();
+          if ((await fs.getDoc(fs.doc(db, 'admins', email))).exists()) superCheck = 'ok';
         } catch {
-          // Sin permiso de lectura = no es superadministrador.
+          superCheck = 'denied';
         }
-        cb({ email, isSuper });
+        cb({ email, isSuper: superCheck === 'ok', superCheck });
       });
     },
 
