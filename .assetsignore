@@ -5,6 +5,5 @@
 .wrangler
 node_modules
 wrangler.jsonc
-firestore.rules
 README.md
 worker.js

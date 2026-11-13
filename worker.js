@@ -11,8 +11,6 @@
 //   GET    /api/users              cuentas (superadministrador)
 //   PUT    /api/users/<correo>     { password } crea la cuenta o cambia su contraseña
 //   DELETE /api/users/<correo>     elimina la cuenta
-import { CONFIG } from './js/config.js';
-
 const SESSION_DAYS = 30;
 const MAX_MENU_BYTES = 900_000;
 const PBKDF2_ITERATIONS = 100_000;
@@ -63,9 +61,6 @@ async function getSetting(env, key) {
   const row = await env.DB.prepare('SELECT value FROM settings WHERE key = ?').bind(key).first();
   return row ? row.value : null;
 }
-
-const setSetting = (env, key, value) =>
-  env.DB.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').bind(key, value).run();
 
 async function readMenu(env, slug) {
   const row = await env.DB.prepare('SELECT data FROM menus WHERE slug = ?').bind(slug).first();
@@ -210,63 +205,6 @@ function checkMenu(menu) {
   menu.owners = menu.owners.map((o) => o.trim().toLowerCase()).filter(Boolean);
 }
 
-// ---------- Migración desde Firebase (temporal) ----------
-// Mientras exista CONFIG.legacyFirebase: la primera vez que entra una cuenta
-// que aún no está aquí, se comprueba contra Firebase y se copia; con el
-// superadministrador se copian además todos los menús. Hasta entonces los
-// menús se siguen leyendo de Firebase.
-
-function decodeValue(v) {
-  if ('stringValue' in v) return v.stringValue;
-  if ('integerValue' in v) return Number(v.integerValue);
-  if ('doubleValue' in v) return v.doubleValue;
-  if ('booleanValue' in v) return v.booleanValue;
-  if ('arrayValue' in v) return (v.arrayValue.values || []).map(decodeValue);
-  if ('mapValue' in v) return decodeFields(v.mapValue.fields || {});
-  return null;
-}
-
-function decodeFields(fields) {
-  const out = {};
-  for (const [key, value] of Object.entries(fields)) out[key] = decodeValue(value);
-  return out;
-}
-
-const legacyDocs = (fb) => `https://firestore.googleapis.com/v1/projects/${fb.projectId}/databases/(default)/documents`;
-
-async function legacyMenu(env, slug) {
-  const fb = CONFIG.legacyFirebase;
-  if (!fb || (await getSetting(env, 'migrated'))) return null;
-  const res = await fetch(`${legacyDocs(fb)}/menus/${slug}?key=${fb.apiKey}`);
-  return res.ok ? decodeFields((await res.json()).fields || {}) : null;
-}
-
-async function legacyLogin(env, email, password) {
-  const fb = CONFIG.legacyFirebase;
-  if (!fb) return null;
-  const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${fb.apiKey}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ email, password, returnSecureToken: true }),
-  });
-  if (!res.ok) return null;
-  const { idToken } = await res.json();
-  const admin = await fetch(`${legacyDocs(fb)}/admins/${encodeURIComponent(email)}`, { headers: { authorization: `Bearer ${idToken}` } });
-  const isSuper = admin.ok;
-  await saveUser(env, email, password, isSuper);
-  if (isSuper && !(await getSetting(env, 'migrated'))) {
-    const list = await fetch(`${legacyDocs(fb)}/menus?pageSize=300&key=${fb.apiKey}`);
-    if (list.ok) {
-      for (const doc of (await list.json()).documents || []) {
-        const slug = doc.name.split('/').pop();
-        if (!(await readMenu(env, slug))) await writeMenu(env, slug, decodeFields(doc.fields || {}));
-      }
-      await setSetting(env, 'migrated', '1');
-    }
-  }
-  return readUser(env, email);
-}
-
 // ---------- Rutas ----------
 
 async function login(request, env) {
@@ -274,8 +212,7 @@ async function login(request, env) {
   const email = cleanEmail(body.email);
   const password = String(body.password || '');
   const wrong = new HttpError(401, 'Correo o contraseña incorrectos.');
-  let row = await readUser(env, email);
-  if (!row) row = await legacyLogin(env, email, password);
+  const row = await readUser(env, email);
   if (!row) {
     await hashPassword(password, 'AAAAAAAAAAAAAAAAAAAAAA'); // mismo tiempo de respuesta exista o no la cuenta
     throw wrong;
@@ -341,7 +278,7 @@ async function handleApi(request, env, path) {
   if (menuMatch) {
     const slug = menuMatch[1];
     if (method === 'GET') {
-      const menu = (await readMenu(env, slug)) || (await legacyMenu(env, slug));
+      const menu = await readMenu(env, slug);
       return menu ? json({ menu }) : json({ error: 'No existe ese menú.' }, 404);
     }
     if (method === 'PUT') {

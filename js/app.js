@@ -745,7 +745,7 @@ function contactLinks(contact) {
 
 // ---------- Sesión ----------
 
-// Carga la parte de administración (SDK de Firebase) una sola vez.
+// Comprueba la sesión guardada y escucha sus cambios, una sola vez.
 function startAdmin() {
   if (adminPromise) return adminPromise;
   adminPromise = store

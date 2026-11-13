@@ -13,10 +13,4 @@ export const CONFIG = {
 
   // true = modo demo: sin servidor, los cambios se guardan solo en el navegador.
   demo: false,
-
-  // Temporal: origen de la migración desde Firebase (ver worker.js).
-  legacyFirebase: {
-    apiKey: 'AIzaSyDS6zoYy2MI8Pl42wNgXuOzZSD9osbuyRw',
-    projectId: 'menu-digital-81c7b',
-  },
 };

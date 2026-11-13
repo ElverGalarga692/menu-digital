@@ -2,131 +2,126 @@
 
 Plantilla de menú para cafeterías y restaurantes. Un solo sitio sirve
 muchos menús: cada local tiene su dirección (`/identificador`), su logo,
-sus colores y su moneda, y su administrador lo edita desde la misma página.
+sus colores y su moneda, y su dueño lo edita desde la misma página.
 
 - Sin frameworks ni paso de compilación: HTML, CSS y JavaScript.
-- Hosting estático (GitHub Pages, Cloudflare Pages…).
-- Datos y login en Firebase (plan gratuito).
+- Todo vive en Cloudflare: la página, los datos (base de datos D1) y el
+  login. No depende de servicios de Google, así que funciona en redes y
+  países donde estos no son accesibles.
 
-## Estado actual: modo demo
+Sitio: <https://menu.digital-a.workers.dev>
 
-Mientras `js/config.js` tenga `firebase: null`, la página funciona en
-**modo demo**: el botón "Administrar" entra sin contraseña y los cambios se
-guardan solo en el navegador de quien edita. Sirve para probar, no para
-producción.
+## Cuentas y permisos
 
-## Publicar en GitHub Pages
+|                               | Superadministrador | Dueño de un local |
+| ----------------------------- | ------------------ | ----------------- |
+| Editar productos y ajustes    | Todos los menús    | Solo el suyo      |
+| Crear y eliminar menús        | Sí                 | No                |
+| Crear cuentas y contraseñas   | Sí                 | No                |
+| Decidir quién edita cada menú | Sí                 | No                |
 
-1. En el repo: **Settings → Pages**.
-2. En "Build and deployment": Source = **Deploy from a branch**,
-   Branch = **main**, carpeta **/ (root)**. Guardar.
-3. En un par de minutos estará en `https://USUARIO.github.io/menu-digital/`.
+Los permisos se comprueban en el servidor (`worker.js`), no solo en la
+página.
 
-## Activar Firebase (guardado real y login)
+## Dar de alta un local
 
-1. Crea un proyecto en <https://console.firebase.google.com> (no hace falta
-   Google Analytics).
-2. **Authentication → Sign-in method**: activa **Correo electrónico/contraseña**.
-3. **Authentication → Users → Add user**: crea tu usuario (correo y contraseña).
-4. **Authentication → Settings → User actions**: desmarca
-   **Enable create (sign-up)**. Importante: así nadie más puede registrarse.
-5. **Firestore Database → Create database** (modo producción).
-6. **Firestore → Rules**: pega el contenido de `firestore.rules` y publica.
-7. **Firestore → Data**: crea la colección `admins` con un documento cuyo
-   **ID sea tu correo en minúsculas** (el contenido da igual, por ejemplo
-   un campo `rol: "super"`). Eso te convierte en superadministrador.
-8. **Project settings → Your apps → Web (`</>`)**: registra una app y copia
-   el objeto `firebaseConfig` en `js/config.js`, en lugar de `null`.
-   Estas claves son públicas por diseño; la seguridad la dan las reglas.
-9. **Authentication → Settings → Authorized domains**: añade
-   `USUARIO.github.io`.
-10. Abre el sitio, pulsa **Administrar**, entra y pulsa
-    **Crear el menú "atono"**: se crea con productos de ejemplo.
+1. Entra como superadministrador ("Administrar", al pie de cualquier menú).
+2. **Menús → Crear menú nuevo**: nombre, identificador, si parte en blanco
+   o como copia de otro menú, correo del dueño y su contraseña inicial.
+3. En el menú nuevo, **Ajustes**: logo, colores, tipografía, moneda, datos
+   del local e idioma.
+4. Carga categorías y productos.
+5. **QR → Descargar PNG** y entrega al dueño la dirección, su correo y la
+   contraseña inicial. El dueño la cambia en **Cuenta → Cambiar mi
+   contraseña**.
 
 ## Uso
 
-- **Editar**: "Administrar" (al pie) → iniciar sesión. Se pueden añadir,
-  editar, marcar como agotado y eliminar productos y categorías.
+- **Editar**: añadir, editar, marcar como agotado y eliminar productos y
+  categorías.
 - **Reordenar**: arrastra el asa (⠿) de un producto o categoría; con
   teclado, enfoca el asa y usa las flechas arriba/abajo.
 - **Deshacer**: al eliminar un producto o categoría aparece "Deshacer"
   durante unos segundos.
-- **Etiquetas**: al editar un producto se marcan Recomendado, Nuevo,
-  Vegano, Sin gluten o Picante.
+- **Tamaños u opciones**: al editar un producto, "Añadir opción" permite
+  varios precios (Chico / Grande, Caliente / Frío…).
+- **Etiquetas**: Recomendado, Nuevo, Vegano, Sin gluten, Picante.
 - **Segundo idioma**: "Ajustes" → "Segundo idioma". Aparecen campos de
   traducción en productos, categorías y ajustes, y el cliente ve un
   selector (ES / EN…). Lo que no esté traducido se muestra en español.
-- **Tamaños u opciones**: al editar un producto, "Añadir opción" permite
-  varios precios (Chico / Grande, Caliente / Frío…).
-- **Identidad del negocio**: "Ajustes" → nombre, logo (se sube desde la
-  página), moneda, tipografía y los tres colores (fondo, texto, acento).
-- **Datos del local**: "Ajustes" → WhatsApp, Instagram, dirección y
-  horario; aparecen como botones bajo el logo.
-- **Contraseña olvidada**: en el acceso, "Olvidé mi contraseña" envía un
-  correo para cambiarla.
-- **QR**: botón "QR" → descarga el PNG para imprimir.
-- **Otro menú** (solo superadministrador): "Menús" → "Crear menú nuevo".
-- **Dar acceso al dueño de un local**: crea su usuario en Firebase
-  (paso 3) y añade su correo en "Ajustes" → "Correos que pueden editar
-  este menú". Ese usuario solo podrá editar su menú.
-
-## Redes que no llegan a Google
-
-Los datos están en Firebase (Google), que no es accesible desde algunas
-redes y países. Por eso el visitante no lee el menú de Google directamente:
-lo pide al propio sitio (`/api/menu/identificador`) y Cloudflare lo
-obtiene por él. Editar el menú sí requiere acceso a Google desde el
-dispositivo del administrador.
+- **Cuenta**: cambiar la propia contraseña. El superadministrador ve además
+  la lista de usuarios y puede crear cuentas, ponerles contraseña nueva o
+  eliminarlas.
+- **Contraseña olvidada**: no hay recuperación por correo. El
+  superadministrador pone una nueva desde **Cuenta → Usuarios**.
+- **Quitar el acceso a un dueño**: borra su correo en los Ajustes del menú
+  o elimina su cuenta.
 
 ## Direcciones
 
 - Cada menú vive en `/identificador` (por ejemplo `/atono`). Las
   direcciones antiguas `?m=identificador` siguen funcionando.
 - La portada (`/`) muestra el menú `defaultMenu` de `js/config.js`.
-- `404.html` es una copia exacta de `index.html`: es lo que permite las
-  direcciones limpias en GitHub Pages. **Si cambias uno, copia el otro.**
-  En Cloudflare esa función la cumple `wrangler.jsonc`.
 
-## Publicar en Cloudflare y usar dominio propio
+## Despliegue en Cloudflare
 
-1. En <https://dash.cloudflare.com> → **Workers & Pages → Create →
-   Import a repository** y elige este repositorio.
-2. No hace falta configurar nada: el despliegue lo define `wrangler.jsonc`
-   (comando `npx wrangler deploy`, sin paso de compilación).
-3. El sitio queda en `https://menu.SUBDOMINIO.workers.dev`. Cada
-   `git push` a `main` se publica solo.
-4. Dominio propio: en el proyecto → **Settings → Domains & Routes → Add → Custom domain**
-   y sigue los pasos (lo más simple es que el dominio esté en Cloudflare).
-5. En Firebase → **Authentication → Settings → Authorized domains** añade
-   la dirección `workers.dev` y tu dominio; sin esto el login falla ahí.
-6. Opcional, un dominio por local: en `js/config.js` → `domains`, indica
+El repositorio está conectado a Cloudflare (Workers & Pages → proyecto
+`menu`): cada `git push` a `main` se publica solo con `npx wrangler deploy`,
+según `wrangler.jsonc`.
+
+- La base de datos D1 se crea sola en el primer despliegue y las tablas
+  las crea `worker.js` al primer uso.
+- Las contraseñas se guardan cifradas (PBKDF2). La clave que firma las
+  sesiones se genera sola y se guarda en la base de datos.
+- **Copia de seguridad**: en el panel de Cloudflare → Storage & Databases →
+  D1 → la base de datos del proyecto, se pueden consultar y exportar las
+  tablas `menus` y `users`.
+
+### Dominio propio
+
+1. En el proyecto → **Domains → Add Domain** y sigue los pasos (lo más
+   simple es que el dominio esté registrado o gestionado en Cloudflare).
+2. Con un dominio como `tumenu.com`, cada local queda en
+   `tumenu.com/identificador`.
+3. Opcional, un dominio por local: en `js/config.js` → `domains`, indica
    qué menú abre la portada de cada dominio, por ejemplo
    `{ 'menu.atono.com': 'atono' }`.
-7. Vuelve a generar los QR desde el botón "QR" entrando por el dominio
-   nuevo, porque el QR lleva la dirección desde la que se genera.
+4. Actualiza `apiBase` en `js/config.js` si cambia la dirección principal,
+   y vuelve a generar los QR entrando por el dominio nuevo (el QR lleva la
+   dirección desde la que se genera).
+
+### Copia en GitHub Pages
+
+El sitio también puede servirse desde GitHub Pages (Settings → Pages →
+rama `main`). Esa copia no tiene servidor: lee y guarda los datos en el
+sitio de Cloudflare indicado en `apiBase`. `404.html` es una copia exacta
+de `index.html` y es lo que permite las direcciones limpias allí.
+**Si cambias uno, copia el otro.**
+
+## Probar en local
+
+```bash
+npx wrangler dev
+```
+
+Levanta el sitio completo con una base de datos local vacía. Para ver solo
+la interfaz sin servidor, pon `demo: true` en `js/config.js`: los cambios
+se guardan en el navegador.
 
 ## Estructura
 
 ```
 index.html            la página
 404.html              copia de index.html (direcciones limpias en GitHub Pages)
-wrangler.jsonc        despliegue y direcciones limpias en Cloudflare
-worker.js             código en Cloudflare: entrega los menús en /api/menu/...
-.assetsignore         archivos del repo que no se publican en Cloudflare
-css/styles.css
-js/config.js          configuración (menú por defecto, Firebase)
+worker.js             servidor: menús, cuentas y sesiones (/api/...)
+wrangler.jsonc        configuración del despliegue en Cloudflare
+.assetsignore         archivos del repo que no se publican
+css/styles.css        estilos
+css/fonts.css         tipografías (archivos en assets/fonts)
+js/config.js          configuración (menú por defecto, dominios)
 js/app.js             interfaz: vista cliente y modo edición
-js/store.js           datos: Firebase o demo (localStorage)
+js/store.js           acceso a datos: servidor o demo
 js/seed.js            menú de ejemplo y plantilla en blanco
 js/vendor-qrcode.js   qrcode-generator 1.4.4 (MIT, Kazuhiko Arase)
-assets/atono-logo.svg
-firestore.rules       reglas de seguridad de Firestore
+assets/               logo de ejemplo y tipografías (SIL Open Font License)
 ```
-
-## Cómo carga
-
-El visitante lee el menú con una sola petición ligera y guarda una copia
-en su dispositivo, así que las siguientes visitas abren al instante. El
-SDK de Firebase solo se descarga al entrar como administrador; con sesión
-iniciada los cambios se ven en vivo, y el visitante los ve al recargar o
-volver a la pestaña.
