@@ -104,25 +104,23 @@ function chooseLang(code) {
 // Texto de un campo en el idioma visible; si falta la traducción, el original.
 const tr = (obj, field) => (viewLang !== 'es' && obj?.t?.[field]) || obj?.[field] || '';
 
-// Tipografías disponibles por negocio (Google Fonts). `head` se usa en
+// Tipografías disponibles por negocio (archivos en assets/fonts, ver css/fonts.css). `head` se usa en
 // títulos y nombres de producto; `body` en el resto.
 const FONTS = {
-  jost: { label: 'Jost · geométrica', head: 'Jost', body: 'Jost', query: 'Jost:wght@400;500;600' },
-  poppins: { label: 'Poppins · moderna', head: 'Poppins', body: 'Poppins', query: 'Poppins:wght@400;500;600' },
-  nunito: { label: 'Nunito · redondeada', head: 'Nunito', body: 'Nunito', query: 'Nunito:wght@400;600;700' },
+  jost: { label: 'Jost · geométrica', head: 'Jost', body: 'Jost' },
+  poppins: { label: 'Poppins · moderna', head: 'Poppins', body: 'Poppins' },
+  nunito: { label: 'Nunito · redondeada', head: 'Nunito', body: 'Nunito' },
   playfair: {
     label: 'Playfair Display · clásica',
     head: 'Playfair Display',
     body: 'Lora',
-    query: 'Playfair+Display:wght@500;600&family=Lora:wght@400;500;600',
     fallback: 'Georgia, serif',
   },
-  lora: { label: 'Lora · serif cálida', head: 'Lora', body: 'Lora', query: 'Lora:wght@400;500;600', fallback: 'Georgia, serif' },
+  lora: { label: 'Lora · serif cálida', head: 'Lora', body: 'Lora', fallback: 'Georgia, serif' },
   oswald: {
     label: 'Oswald · condensada',
     head: 'Oswald',
     body: 'Source Sans 3',
-    query: 'Oswald:wght@400;500;600&family=Source+Sans+3:wght@400;500;600',
   },
 };
 const SANS_FALLBACK = "'Century Gothic', 'Avenir Next', 'Segoe UI', system-ui, sans-serif";
@@ -199,14 +197,6 @@ function applyTheme(menu) {
   const fallback = font.fallback || SANS_FALLBACK;
   root.setProperty('--font-head', `'${font.head}', ${fallback}`);
   root.setProperty('--font-body', `'${font.body}', ${fallback}`);
-  const href = `https://fonts.googleapis.com/css2?family=${font.query}&display=swap`;
-  let link = document.getElementById('menu-font');
-  if (!link) {
-    link = h('link', { id: 'menu-font', rel: 'stylesheet' });
-    document.head.append(link);
-  }
-  if (link.getAttribute('href') !== href) link.setAttribute('href', href);
-
   document.querySelector('meta[name="theme-color"]').content = isHexColor(theme.bg) ? theme.bg : DEFAULT_THEME.bg;
   document.title = menu?.name ? `${menu.name} · Menú` : 'Menú';
 }
