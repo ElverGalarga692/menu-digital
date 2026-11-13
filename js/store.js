@@ -20,6 +20,9 @@ import { sampleMenu } from './seed.js';
 
 const FIREBASE_VERSION = '10.14.1';
 
+// Copia profunda; structuredClone no existe en navegadores algo antiguos.
+const clone = (value) => (typeof structuredClone === 'function' ? structuredClone(value) : JSON.parse(JSON.stringify(value)));
+
 export async function createStore(config) {
   return config.firebase ? firebaseStore(config.firebase) : demoStore(config);
 }
@@ -55,7 +58,8 @@ function firebaseStore(firebaseConfig) {
 
   let sdkPromise;
   const sdk = () => {
-    sdkPromise ||= (async () => {
+    if (sdkPromise) return sdkPromise;
+    sdkPromise = (async () => {
       const base = `https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}`;
       const [appMod, fs, authMod] = await Promise.all([
         import(`${base}/firebase-app.js`),
@@ -86,7 +90,17 @@ function firebaseStore(firebaseConfig) {
       const url =
         `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}` +
         `/databases/(default)/documents/menus/${encodeURIComponent(slug)}?key=${firebaseConfig.apiKey}`;
-      const res = await fetch(url, { cache: 'no-store' });
+      // Con mala conexión, mejor un error visible que esperar sin fin.
+      const abort = new AbortController();
+      const timer = setTimeout(() => abort.abort(), 15000);
+      let res;
+      try {
+        res = await fetch(url, { cache: 'no-store', signal: abort.signal });
+      } catch (err) {
+        throw new Error(err?.name === 'AbortError' ? 'el servicio de datos no respondió a tiempo' : `no se pudo conectar con el servicio de datos (${err?.message || err})`);
+      } finally {
+        clearTimeout(timer);
+      }
       if (res.status === 404) return null;
       if (!res.ok) throw new Error(`El servicio de datos respondió ${res.status}.`);
       return decodeFields((await res.json()).fields || {});
@@ -183,7 +197,7 @@ function demoStore(config) {
   };
   const emit = (slug) => {
     const menu = read()[slug] || null;
-    (menuSubs.get(slug) || []).forEach((cb) => cb(menu && structuredClone(menu)));
+    (menuSubs.get(slug) || []).forEach((cb) => cb(menu && clone(menu)));
   };
   const currentUser = () => (memory.admin ? { email: 'demo', isSuper: true, superCheck: 'ok' } : null);
 
@@ -211,7 +225,7 @@ function demoStore(config) {
 
     async fetchMenu(slug) {
       const menu = read()[slug];
-      return menu ? structuredClone(menu) : null;
+      return menu ? clone(menu) : null;
     },
 
     async subscribeMenu(slug, cb) {
@@ -221,7 +235,7 @@ function demoStore(config) {
     },
 
     async saveMenu(slug, menu) {
-      read()[slug] = { ...structuredClone(menu), updatedAt: Date.now() };
+      read()[slug] = { ...clone(menu), updatedAt: Date.now() };
       write();
       emit(slug);
     },

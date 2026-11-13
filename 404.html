@@ -26,6 +26,28 @@
 <body>
   <div id="app"><p class="status">Cargando menú…</p></div>
   <div id="toasts" aria-live="polite"></div>
+  <script>
+    // Si el menú no arranca (navegador antiguo, bloqueo de red, error), se
+    // muestra el motivo en lugar de dejar "Cargando menú…" para siempre.
+    (function () {
+      var firstError = '';
+      window.addEventListener('error', function (e) {
+        if (firstError) return;
+        var target = e.target || {};
+        firstError = e.message || (target.src || target.href ? 'no se pudo descargar ' + (target.src || target.href) : 'error desconocido');
+      }, true);
+      window.addEventListener('unhandledrejection', function (e) {
+        if (!firstError) firstError = String((e.reason && e.reason.message) || e.reason);
+      });
+      setTimeout(function () {
+        var app = document.getElementById('app');
+        var waiting = app && app.children.length === 1 && app.firstElementChild.className === 'status' && !app.querySelector('h1');
+        if (!waiting) return;
+        app.firstElementChild.innerHTML = '<strong>No se pudo cargar el menú.</strong><br>Recarga la página o prueba con otro navegador.<br><small></small>';
+        app.querySelector('small').textContent = 'Detalle: ' + (firstError || 'la página no respondió') + ' · ' + navigator.userAgent;
+      }, 20000);
+    })();
+  </script>
   <noscript><p class="status">Esta página necesita JavaScript para mostrar el menú.</p></noscript>
   <script type="module" src="js/app.js"></script>
 </body>

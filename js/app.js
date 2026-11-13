@@ -127,6 +127,9 @@ const FONTS = {
 };
 const SANS_FALLBACK = "'Century Gothic', 'Avenir Next', 'Segoe UI', system-ui, sans-serif";
 
+// Copia profunda; structuredClone no existe en navegadores algo antiguos.
+const clone = (value) => (typeof structuredClone === 'function' ? structuredClone(value) : JSON.parse(JSON.stringify(value)));
+
 const app = document.getElementById('app');
 const state = { menu: undefined, user: null, editing: false, error: null };
 let store;
@@ -260,7 +263,7 @@ function canEdit() {
 
 // Aplica un cambio al menú y lo guarda. `undo` añade "Deshacer" al aviso.
 async function mutate(change, { message = 'Guardado', undo } = {}) {
-  const next = structuredClone(state.menu);
+  const next = clone(state.menu);
   change(next);
   const previous = state.menu;
   state.menu = next;
@@ -766,7 +769,8 @@ function contactLinks(contact) {
 
 // Carga la parte de administración (SDK de Firebase) una sola vez.
 function startAdmin() {
-  adminPromise ||= store
+  if (adminPromise) return adminPromise;
+  adminPromise = store
     .onAuth((user) => {
       const wasLoggedIn = Boolean(state.user);
       state.user = user;
@@ -794,9 +798,9 @@ function watchLive() {
 async function refresh() {
   try {
     setMenu(await store.fetchMenu(slug));
-  } catch {
+  } catch (err) {
     if (state.menu === undefined) {
-      state.error = 'No se pudo cargar el menú. Revisa tu conexión e inténtalo de nuevo.';
+      state.error = `Revisa tu conexión e inténtalo de nuevo. (Detalle: ${err?.message || err})`;
       render();
     }
   }
@@ -979,7 +983,7 @@ function newMenuForm(menus) {
       if (v.copyFrom) {
         const source = await store.fetchMenu(v.copyFrom);
         if (!source) throw new Error('No se pudo leer el menú a copiar.');
-        data = { ...blankMenu(v.name), ...structuredClone(source), name: v.name, owners: [] };
+        data = { ...blankMenu(v.name), ...clone(source), name: v.name, owners: [] };
       }
       if (v.owners) data.owners = v.owners.split(/[\s,;]+/).map((e) => e.toLowerCase()).filter(Boolean);
       await store.saveMenu(s, data);
@@ -1010,7 +1014,30 @@ function render() {
   const focusedHandle = active?.classList.contains('handle') ? active.closest('[id]')?.id : null;
 
   if (state.error) {
-    app.replaceChildren(h('div', { class: 'status' }, h('h1', {}, 'No se pudo cargar el menú'), h('p', {}, state.error)));
+    app.replaceChildren(
+      h(
+        'div',
+        { class: 'status' },
+        h('h1', {}, 'No se pudo cargar el menú'),
+        h('p', {}, state.error),
+        h(
+          'p',
+          {},
+          h(
+            'button',
+            {
+              class: 'btn primary',
+              onclick: () => {
+                state.error = null;
+                app.replaceChildren(h('p', { class: 'status' }, 'Cargando menú…'));
+                refresh();
+              },
+            },
+            'Reintentar',
+          ),
+        ),
+      ),
+    );
     return;
   }
   if (menu === undefined) return;
@@ -1204,7 +1231,7 @@ function categoryView(cat, index, editing, currency) {
                     message: `Categoría "${cat.name}" eliminada`,
                     undo: () =>
                       mutate((m) => {
-                        if (!m.categories.some((c) => c.id === cat.id)) m.categories.splice(index, 0, structuredClone(cat));
+                        if (!m.categories.some((c) => c.id === cat.id)) m.categories.splice(index, 0, clone(cat));
                       }),
                   },
                 ),
@@ -1275,7 +1302,7 @@ function itemView(inCat, item, index, editing, currency) {
                   undo: () =>
                     mutate((m) => {
                       const c = inCat(m);
-                      if (c && !c.items.some((i) => i.id === item.id)) c.items.splice(index, 0, structuredClone(item));
+                      if (c && !c.items.some((i) => i.id === item.id)) c.items.splice(index, 0, clone(item));
                     }),
                 },
               ),

@@ -27,7 +27,6 @@ export function sampleMenu() {
   return {
     ...blankMenu('Atono'),
     tagline: 'Café',
-    note: 'Productos de ejemplo: edítalos desde el modo administrador.',
     logoUrl: 'assets/atono-logo.svg',
     categories: [
       {
