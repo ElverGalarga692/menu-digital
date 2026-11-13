@@ -934,7 +934,7 @@ async function menusDialog() {
             type: 'button',
             onclick: () => {
               close();
-              newMenuForm(menus.map((m) => m.slug));
+              newMenuForm(menus);
             },
           },
           'Crear menú nuevo',
@@ -944,20 +944,45 @@ async function menusDialog() {
   );
 }
 
-function newMenuForm(existing) {
+// Alta de un local: nombre, dirección, quién lo edita y, si se quiere,
+// partir de una copia de otro menú (diseño y productos).
+function newMenuForm(menus) {
+  const fields = [
+    { name: 'name', label: 'Nombre del local', required: true, maxlength: 60 },
+    { name: 'slug', label: 'Identificador (minúsculas, números y guiones)', required: true, maxlength: 40, placeholder: 'mi-cafeteria' },
+    {
+      name: 'copyFrom',
+      label: 'Empezar a partir de',
+      type: 'select',
+      value: '',
+      options: [['', 'Menú en blanco'], ...menus.map((m) => [m.slug, `Copia de ${m.name}`])],
+    },
+  ];
+  if (store.mode === 'firebase') {
+    fields.push({
+      name: 'owners',
+      label: 'Correo del dueño que podrá editarlo (opcional; varios separados por comas)',
+      type: 'textarea',
+      maxlength: 300,
+    });
+  }
   openForm({
     title: 'Crear menú nuevo',
-    hint: 'El identificador es lo que va al final de la dirección: /identificador',
+    hint: `El identificador es el final de la dirección: ${location.host}${BASE}identificador`,
     submitLabel: 'Crear',
-    fields: [
-      { name: 'name', label: 'Nombre del local', required: true, maxlength: 60 },
-      { name: 'slug', label: 'Identificador (minúsculas, números y guiones)', required: true, maxlength: 40, placeholder: 'mi-cafeteria' },
-    ],
+    fields,
     onSubmit: async (v) => {
       const s = cleanSlug(v.slug);
-      if (!s) throw new Error('El identificador no es válido.');
-      if (existing.includes(s)) throw new Error('Ya existe un menú con ese identificador.');
-      await store.saveMenu(s, blankMenu(v.name));
+      if (!s || RESERVED.has(s)) throw new Error('El identificador no es válido.');
+      if (menus.some((m) => m.slug === s)) throw new Error('Ya existe un menú con ese identificador.');
+      let data = blankMenu(v.name);
+      if (v.copyFrom) {
+        const source = await store.fetchMenu(v.copyFrom);
+        if (!source) throw new Error('No se pudo leer el menú a copiar.');
+        data = { ...blankMenu(v.name), ...structuredClone(source), name: v.name, owners: [] };
+      }
+      if (v.owners) data.owners = v.owners.split(/[\s,;]+/).map((e) => e.toLowerCase()).filter(Boolean);
+      await store.saveMenu(s, data);
       location.href = menuUrl(s);
     },
   });
