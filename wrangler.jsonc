@@ -4,9 +4,13 @@
   "compatibility_date": "2026-11-10",
   // Mantiene activa la dirección menu.SUBDOMINIO.workers.dev en cada despliegue.
   "workers_dev": true,
+  // Atiende /api/* (lectura del menú); el resto son archivos del sitio.
+  "main": "worker.js",
   "assets": {
     "directory": ".",
+    "binding": "ASSETS",
     // Las direcciones limpias (/atono) no son archivos: se atienden con index.html.
-    "not_found_handling": "single-page-application"
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
   }
 }

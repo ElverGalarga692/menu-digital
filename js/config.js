@@ -11,6 +11,10 @@ export const CONFIG = {
   // Ejemplo: { 'menu.atono.com': 'atono', 'carta.otrolocal.com': 'otro-local' }
   domains: {},
 
+  // Sitio de Cloudflare que entrega los menús (/api/menu/...). Solo lo usan
+  // las copias del sitio alojadas fuera de Cloudflare, como GitHub Pages.
+  apiBase: 'https://menu.digital-a.workers.dev',
+
   // Claves públicas por diseño: la seguridad la dan las reglas de Firestore.
   firebase: {
     apiKey: 'AIzaSyDS6zoYy2MI8Pl42wNgXuOzZSD9osbuyRw',

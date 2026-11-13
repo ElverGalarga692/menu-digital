@@ -24,7 +24,7 @@ const FIREBASE_VERSION = '10.14.1';
 const clone = (value) => (typeof structuredClone === 'function' ? structuredClone(value) : JSON.parse(JSON.stringify(value)));
 
 export async function createStore(config) {
-  return config.firebase ? firebaseStore(config.firebase) : demoStore(config);
+  return config.firebase ? firebaseStore(config.firebase, config) : demoStore(config);
 }
 
 // Convierte el formato tipado de la API REST de Firestore a valores normales.
@@ -45,7 +45,7 @@ function decodeFields(fields) {
   return out;
 }
 
-function firebaseStore(firebaseConfig) {
+function firebaseStore(firebaseConfig, config) {
   const HINT = 'menu-digital:admin';
   const setHint = (on) => {
     try {
@@ -86,24 +86,40 @@ function firebaseStore(firebaseConfig) {
       }
     },
 
+    // Lectura pública del menú. Primero a través del propio sitio en
+    // Cloudflare (/api/menu), que funciona aunque la red del visitante no
+    // llegue a Google; si eso falla, directamente a Firestore.
     async fetchMenu(slug) {
-      const url =
+      const direct =
         `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}` +
         `/databases/(default)/documents/menus/${encodeURIComponent(slug)}?key=${firebaseConfig.apiKey}`;
-      // Con mala conexión, mejor un error visible que esperar sin fin.
-      const abort = new AbortController();
-      const timer = setTimeout(() => abort.abort(), 15000);
-      let res;
-      try {
-        res = await fetch(url, { cache: 'no-store', signal: abort.signal });
-      } catch (err) {
-        throw new Error(err?.name === 'AbortError' ? 'el servicio de datos no respondió a tiempo' : `no se pudo conectar con el servicio de datos (${err?.message || err})`);
-      } finally {
-        clearTimeout(timer);
+      const path = `/api/menu/${encodeURIComponent(slug)}`;
+      const sources = [];
+      // 1) El propio sitio (cuando está en Cloudflare; GitHub Pages no tiene /api).
+      if (!location.hostname.endsWith('.github.io')) sources.push({ url: path, wait: 8000 });
+      // 2) El sitio de Cloudflare indicado en la configuración, si es otro.
+      if (config.apiBase && config.apiBase !== location.origin) sources.push({ url: config.apiBase + path, wait: 8000 });
+      // 3) Firestore directamente.
+      sources.push({ url: direct, wait: 15000 });
+
+      let lastError;
+      for (const source of sources) {
+        const abort = new AbortController();
+        const timer = setTimeout(() => abort.abort(), source.wait);
+        try {
+          const res = await fetch(source.url, { cache: 'no-store', signal: abort.signal });
+          const isJson = (res.headers.get('content-type') || '').includes('json');
+          if (!isJson) throw new Error(`respuesta inesperada (${res.status})`);
+          if (res.status === 404) return null;
+          if (!res.ok) throw new Error(`el servicio de datos respondió ${res.status}`);
+          return decodeFields((await res.json()).fields || {});
+        } catch (err) {
+          lastError = err?.name === 'AbortError' ? new Error('el servicio de datos no respondió a tiempo') : err;
+        } finally {
+          clearTimeout(timer);
+        }
       }
-      if (res.status === 404) return null;
-      if (!res.ok) throw new Error(`El servicio de datos respondió ${res.status}.`);
-      return decodeFields((await res.json()).fields || {});
+      throw new Error(`no se pudo conectar con el servicio de datos (${lastError?.message || lastError})`);
     },
 
     async subscribeMenu(slug, cb, onError) {

@@ -70,6 +70,14 @@ producción.
   (paso 3) y añade su correo en "Ajustes" → "Correos que pueden editar
   este menú". Ese usuario solo podrá editar su menú.
 
+## Redes que no llegan a Google
+
+Los datos están en Firebase (Google), que no es accesible desde algunas
+redes y países. Por eso el visitante no lee el menú de Google directamente:
+lo pide al propio sitio (`/api/menu/identificador`) y Cloudflare lo
+obtiene por él. Editar el menú sí requiere acceso a Google desde el
+dispositivo del administrador.
+
 ## Direcciones
 
 - Cada menú vive en `/identificador` (por ejemplo `/atono`). Las
@@ -103,6 +111,7 @@ producción.
 index.html            la página
 404.html              copia de index.html (direcciones limpias en GitHub Pages)
 wrangler.jsonc        despliegue y direcciones limpias en Cloudflare
+worker.js             código en Cloudflare: entrega los menús en /api/menu/...
 .assetsignore         archivos del repo que no se publican en Cloudflare
 css/styles.css
 js/config.js          configuración (menú por defecto, Firebase)
