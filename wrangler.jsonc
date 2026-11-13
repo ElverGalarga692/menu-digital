@@ -2,6 +2,8 @@
 {
   "name": "menu",
   "compatibility_date": "2026-11-10",
+  // Mantiene activa la dirección menu.SUBDOMINIO.workers.dev en cada despliegue.
+  "workers_dev": true,
   "assets": {
     "directory": ".",
     // Las direcciones limpias (/atono) no son archivos: se atienden con index.html.
