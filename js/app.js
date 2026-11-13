@@ -130,7 +130,8 @@ const SANS_FALLBACK = "'Century Gothic', 'Avenir Next', 'Segoe UI', system-ui, s
 const app = document.getElementById('app');
 const state = { menu: undefined, user: null, editing: false, error: null };
 let store;
-let navObserver;
+let stopWatching = null;
+let pinnedCategory = null;
 let adminPromise;
 let live = false;
 
@@ -976,7 +977,8 @@ function deleteMenu() {
 // ---------- Vistas ----------
 
 function render() {
-  navObserver?.disconnect();
+  stopWatching?.();
+  stopWatching = null;
   const { menu, user } = state;
   // Si el foco está en un asa de reordenar, se devuelve tras repintar.
   const active = document.activeElement;
@@ -1040,7 +1042,10 @@ function render() {
   // Con <base> en la página, un enlace "#seccion" recargaría: se desplaza a mano.
   const jump = (id) => (e) => {
     e.preventDefault();
+    e.stopPropagation();
+    pinnedCategory = id;
     document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    window.dispatchEvent(new Event('scroll'));
   };
 
   const view = h(
@@ -1256,23 +1261,55 @@ function itemView(inCat, item, index, editing, currency) {
   );
 }
 
+// Resalta en la barra la categoría que se está viendo. `pinnedCategory` es
+// la que el visitante acaba de tocar: manda hasta que vuelva a desplazarse
+// él mismo (así la última categoría se resalta aunque la página no dé más).
 function watchActiveCategory() {
   const links = [...app.querySelectorAll('.cats a')];
-  if (!links.length || !('IntersectionObserver' in window)) return;
-  const byId = new Map(links.map((a) => [a.dataset.target, a]));
-  navObserver = new IntersectionObserver(
-    (entries) => {
-      for (const entry of entries) {
-        if (!entry.isIntersecting) continue;
-        links.forEach((a) => a.classList.remove('active'));
-        const link = byId.get(entry.target.id);
-        link?.classList.add('active');
-        link?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'auto' });
-      }
-    },
-    { rootMargin: '-70px 0px -70% 0px' },
-  );
-  app.querySelectorAll('.category').forEach((s) => navObserver.observe(s));
+  const sections = [...app.querySelectorAll('.category')];
+  if (!links.length) return;
+  const nav = app.querySelector('.cats');
+  const bar = nav.querySelector('.cats-inner');
+  let current = null;
+  let queued = false;
+
+  const update = () => {
+    queued = false;
+    const line = nav.getBoundingClientRect().bottom + 24;
+    let id = sections[0]?.id;
+    for (const section of sections) {
+      if (section.getBoundingClientRect().top <= line) id = section.id;
+    }
+    if (pinnedCategory && sections.some((x) => x.id === pinnedCategory)) id = pinnedCategory;
+    if (id === current) return;
+    current = id;
+    for (const link of links) {
+      const on = link.dataset.target === id;
+      link.classList.toggle('active', on);
+      // Centra la pastilla moviendo solo la barra en horizontal. No usar
+      // scrollIntoView aquí: interrumpe el desplazamiento de la página.
+      if (on) bar.scrollTo({ left: link.offsetLeft - bar.offsetLeft - (bar.clientWidth - link.offsetWidth) / 2, behavior: 'smooth' });
+    }
+  };
+  const onScroll = () => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(update);
+  };
+  const unpin = () => {
+    pinnedCategory = null;
+  };
+  window.addEventListener('scroll', onScroll, { passive: true });
+  window.addEventListener('touchstart', unpin, { passive: true });
+  window.addEventListener('wheel', unpin, { passive: true });
+  window.addEventListener('keydown', unpin);
+  stopWatching = () => {
+    window.removeEventListener('scroll', onScroll);
+    window.removeEventListener('touchstart', unpin);
+    window.removeEventListener('wheel', unpin);
+    window.removeEventListener('keydown', unpin);
+  };
+  update();
 }
 
 // ---------- Arranque ----------
