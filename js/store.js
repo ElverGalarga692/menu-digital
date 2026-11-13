@@ -99,7 +99,8 @@ function apiStore(config) {
 
     async fetchMenu(slug) {
       try {
-        return (await call('GET', `/menu/${encodeURIComponent(slug)}`, undefined, { auth: false })).menu;
+        // Con sesión, el servidor incluye además quién puede editar el menú.
+        return (await call('GET', `/menu/${encodeURIComponent(slug)}`)).menu;
       } catch (err) {
         if (err.status === 404) return null;
         throw err;

@@ -701,7 +701,7 @@ function settingsForm() {
     { name: 'note', label: 'Nota al pie (wifi, avisos…)', type: 'textarea', value: m.note, maxlength: 400 },
     l2 && { name: 't_note', label: `Nota al pie en ${other}`, type: 'textarea', value: m.t?.note, maxlength: 400 },
   ].filter(Boolean);
-  if (state.user?.isSuper && store.mode !== 'demo') {
+  if (state.user?.isSuper && store.mode !== 'demo' && Array.isArray(m.owners)) {
     fields.push({
       name: 'owners',
       label: 'Correos que pueden editar este menú (separados por comas)',
@@ -755,6 +755,8 @@ function startAdmin() {
       if (user && !wasLoggedIn) state.editing = true;
       if (!user) state.editing = false;
       render();
+      // Con sesión, el servidor entrega también los permisos del menú.
+      if (user && !wasLoggedIn) refresh();
     })
     .catch((err) => {
       adminPromise = null;

@@ -279,13 +279,21 @@ async function handleApi(request, env, path) {
     const slug = menuMatch[1];
     if (method === 'GET') {
       const menu = await readMenu(env, slug);
-      return menu ? json({ menu }) : json({ error: 'No existe ese menú.' }, 404);
+      if (!menu) return json({ error: 'No existe ese menú.' }, 404);
+      // Los correos de los dueños no son públicos: solo los recibe quien
+      // puede editar este menú.
+      const viewer = await currentUser(request, env);
+      const mayEdit = viewer && (viewer.isSuper || (menu.owners || []).includes(viewer.email));
+      if (!mayEdit) delete menu.owners;
+      return json({ menu });
     }
     if (method === 'PUT') {
       const user = await requireUser(request, env);
       const menu = await readBody(request);
-      checkMenu(menu);
       const existing = await readMenu(env, slug);
+      // Si la petición no trae la lista de dueños, se conserva la guardada.
+      if (!Array.isArray(menu?.owners) && existing) menu.owners = existing.owners || [];
+      checkMenu(menu);
       if (!existing && !user.isSuper) throw new HttpError(403, 'Solo el superadministrador puede crear menús.');
       if (existing && !user.isSuper) {
         if (!(existing.owners || []).includes(user.email)) throw new HttpError(403, 'Tu cuenta no tiene permiso sobre este menú.');
