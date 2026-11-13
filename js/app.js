@@ -134,7 +134,6 @@ let store;
 let stopWatching = null;
 let pinnedCategory = null;
 let adminPromise;
-let live = false;
 
 // ---------- Utilidades de DOM ----------
 
@@ -270,18 +269,7 @@ async function mutate(change, { message = 'Guardado', undo } = {}) {
 }
 
 function friendlyError(err) {
-  const code = err?.code || '';
-  if (code.includes('permission-denied')) return 'tu cuenta no tiene permiso sobre este menú.';
-  if (code.includes('invalid-credential') || code.includes('wrong-password') || code.includes('user-not-found')) {
-    return 'correo o contraseña incorrectos.';
-  }
-  if (code.includes('invalid-email')) return 'el correo no es válido.';
-  if (code.includes('too-many-requests')) return 'demasiados intentos, espera unos minutos.';
-  if (code.includes('network') || code.includes('unavailable')) return 'sin conexión.';
-  if (code.includes('invalid-argument') || /exceeds the maximum/i.test(err?.message || '')) {
-    return 'el menú ocupa demasiado; prueba con un logo más ligero.';
-  }
-  return err?.message || 'error desconocido.';
+  return err?.message || 'Error desconocido.';
 }
 
 function moveTo(list, from, to) {
@@ -713,7 +701,7 @@ function settingsForm() {
     { name: 'note', label: 'Nota al pie (wifi, avisos…)', type: 'textarea', value: m.note, maxlength: 400 },
     l2 && { name: 't_note', label: `Nota al pie en ${other}`, type: 'textarea', value: m.t?.note, maxlength: 400 },
   ].filter(Boolean);
-  if (state.user?.isSuper && store.mode === 'firebase') {
+  if (state.user?.isSuper && store.mode !== 'demo') {
     fields.push({
       name: 'owners',
       label: 'Correos que pueden editar este menú (separados por comas)',
@@ -766,7 +754,6 @@ function startAdmin() {
       state.user = user;
       if (user && !wasLoggedIn) state.editing = true;
       if (!user) state.editing = false;
-      if (user) watchLive();
       render();
     })
     .catch((err) => {
@@ -774,15 +761,6 @@ function startAdmin() {
       throw err;
     });
   return adminPromise;
-}
-
-// Con sesión iniciada, el menú se actualiza en vivo.
-function watchLive() {
-  if (live) return;
-  live = true;
-  store.subscribeMenu(slug, setMenu, () => {}).catch(() => {
-    live = false;
-  });
 }
 
 async function refresh() {
@@ -810,38 +788,122 @@ async function loginForm() {
   if (state.user) return;
   openForm({
     title: 'Acceso de administrador',
+    hint: 'Si olvidaste tu contraseña, pide al administrador del sitio que te ponga una nueva.',
     submitLabel: 'Entrar',
     fields: [
       { name: 'email', label: 'Correo', type: 'email', required: true, autocomplete: 'username' },
       { name: 'password', label: 'Contraseña', type: 'password', required: true, autocomplete: 'current-password' },
     ],
     onSubmit: (v) => store.login(v.email, v.password),
-    footer: (inputs, messageBox) =>
+  });
+}
+
+// ---------- Cuenta y usuarios ----------
+
+function passwordForm() {
+  openForm({
+    title: 'Cambiar mi contraseña',
+    fields: [
+      { name: 'current', label: 'Contraseña actual', type: 'password', required: true, autocomplete: 'current-password' },
+      { name: 'next', label: 'Contraseña nueva (mínimo 8 caracteres)', type: 'password', required: true, autocomplete: 'new-password' },
+    ],
+    onSubmit: async (v) => {
+      await store.changePassword(v.current, v.next);
+      toast('Contraseña cambiada');
+    },
+  });
+}
+
+function userPasswordForm(email) {
+  openForm({
+    title: 'Nueva contraseña',
+    hint: `Para ${email}. Pásasela tú; sus sesiones abiertas se cerrarán.`,
+    fields: [{ name: 'password', label: 'Contraseña nueva (mínimo 8 caracteres)', required: true }],
+    onSubmit: async (v) => {
+      await store.saveUser(email, v.password);
+      toast('Contraseña actualizada');
+    },
+  });
+}
+
+function newUserForm(existing) {
+  openForm({
+    title: 'Crear usuario',
+    hint: 'La cuenta podrá editar los menús en cuyos Ajustes figure su correo.',
+    submitLabel: 'Crear',
+    fields: [
+      { name: 'email', label: 'Correo', type: 'email', required: true },
+      { name: 'password', label: 'Contraseña inicial (mínimo 8 caracteres)', required: true },
+    ],
+    onSubmit: async (v) => {
+      if (existing.includes(v.email.toLowerCase())) throw new Error('Ya existe una cuenta con ese correo.');
+      await store.saveUser(v.email, v.password);
+      toast('Usuario creado');
+    },
+  });
+}
+
+async function accountDialog() {
+  const me = state.user;
+  let users = [];
+  if (me.isSuper) {
+    try {
+      users = await store.listUsers();
+    } catch (err) {
+      toast(friendlyError(err), true);
+      return;
+    }
+  }
+  openDialog((close) => {
+    const then = (fn) => () => {
+      close();
+      fn();
+    };
+    const remove = (email) => async () => {
+      if (!confirm(`¿Eliminar la cuenta ${email}? Dejará de poder entrar.`)) return;
+      try {
+        await store.deleteUser(email);
+        toast('Cuenta eliminada');
+        close();
+        accountDialog();
+      } catch (err) {
+        toast(friendlyError(err), true);
+      }
+    };
+    return h(
+      'div',
+      { class: 'dialog-body' },
+      h('h3', {}, 'Cuenta'),
+      h('p', { class: 'hint' }, `Sesión iniciada como ${me.email}`),
+      h('button', { class: 'btn', type: 'button', onclick: then(passwordForm) }, 'Cambiar mi contraseña'),
+      me.isSuper && h('h3', {}, 'Usuarios'),
+      me.isSuper &&
+        h(
+          'ul',
+          { class: 'menu-list users' },
+          users.map((u) =>
+            h(
+              'li',
+              {},
+              h('span', { class: 'user-email' }, u.email),
+              u.isSuper
+                ? h('small', {}, 'superadministrador')
+                : h(
+                    'span',
+                    { class: 'tools' },
+                    h('button', { type: 'button', onclick: then(() => userPasswordForm(u.email)) }, 'Nueva contraseña'),
+                    h('button', { type: 'button', class: 'danger', onclick: remove(u.email) }, 'Eliminar'),
+                  ),
+            ),
+          ),
+        ),
       h(
-        'button',
-        {
-          class: 'link',
-          type: 'button',
-          onclick: async (e) => {
-            const email = inputs.email.value.trim();
-            if (!email) {
-              messageBox.textContent = 'Escribe tu correo arriba y vuelve a pulsar.';
-              inputs.email.focus();
-              return;
-            }
-            e.target.disabled = true;
-            try {
-              await store.resetPassword(email);
-              messageBox.textContent = '';
-              toast('Si el correo está registrado, recibirás un enlace para cambiar la contraseña.');
-            } catch (err) {
-              messageBox.textContent = friendlyError(err);
-            }
-            e.target.disabled = false;
-          },
-        },
-        'Olvidé mi contraseña',
+        'div',
+        { class: 'actions' },
+        h('button', { class: 'btn', type: 'button', onclick: close }, 'Cerrar'),
+        me.isSuper && h('button', { class: 'btn primary', type: 'button', onclick: then(() => newUserForm(users.map((u) => u.email))) }, 'Crear usuario'),
       ),
+    );
   });
 }
 
@@ -952,13 +1014,11 @@ function newMenuForm(menus) {
       options: [['', 'Menú en blanco'], ...menus.map((m) => [m.slug, `Copia de ${m.name}`])],
     },
   ];
-  if (store.mode === 'firebase') {
-    fields.push({
-      name: 'owners',
-      label: 'Correo del dueño que podrá editarlo (opcional; varios separados por comas)',
-      type: 'textarea',
-      maxlength: 300,
-    });
+  if (store.mode !== 'demo') {
+    fields.push(
+      { name: 'owners', label: 'Correo del dueño que podrá editarlo (opcional)', type: 'email', maxlength: 120 },
+      { name: 'ownerPassword', label: 'Contraseña inicial del dueño (si aún no tiene cuenta; mínimo 8 caracteres)', maxlength: 200 },
+    );
   }
   openForm({
     title: 'Crear menú nuevo',
@@ -975,7 +1035,13 @@ function newMenuForm(menus) {
         if (!source) throw new Error('No se pudo leer el menú a copiar.');
         data = { ...blankMenu(v.name), ...clone(source), name: v.name, owners: [] };
       }
-      if (v.owners) data.owners = v.owners.split(/[\s,;]+/).map((e) => e.toLowerCase()).filter(Boolean);
+      const owner = (v.owners || '').toLowerCase();
+      if (owner) {
+        data.owners = [owner];
+        const hasAccount = (await store.listUsers()).some((u) => u.email === owner);
+        if (!hasAccount && !v.ownerPassword) throw new Error('Ese correo aún no tiene cuenta: escribe una contraseña inicial.');
+        if (!hasAccount) await store.saveUser(owner, v.ownerPassword);
+      }
       await store.saveMenu(s, data);
       location.href = menuUrl(s);
     },
@@ -1059,7 +1125,7 @@ function render() {
               `Crear el menú "${slug}"`,
             ),
           ),
-        user && !user.isSuper && h('p', { class: 'hint' }, setupHint(user)),
+        user && !user.isSuper && h('p', { class: 'hint' }, 'Tu cuenta no puede crear menús.'),
         h('p', {}, user ? h('button', { class: 'link', onclick: () => store.logout() }, `Cerrar sesión (${user.email})`) : h('button', { class: 'link', onclick: loginForm }, 'Administrar')),
       ),
     );
@@ -1136,13 +1202,6 @@ function render() {
   if (focusedHandle) document.getElementById(focusedHandle)?.querySelector('.handle')?.focus();
 }
 
-function setupHint(user) {
-  if (user.superCheck === 'denied') {
-    return 'Sesión iniciada, pero las reglas de Firestore aún no están publicadas: pega el contenido de firestore.rules en Firestore → Rules y pulsa Publicar.';
-  }
-  return `Sesión iniciada, pero esta cuenta no es superadministrador: en Firestore crea la colección "admins" con un documento cuyo ID sea exactamente ${user.email}`;
-}
-
 function footerLink(editing) {
   const { user } = state;
   if (!user) return h('button', { class: 'link', onclick: loginForm }, 'Administrar');
@@ -1175,6 +1234,7 @@ function adminBar() {
       h('button', { onclick: settingsForm }, 'Ajustes'),
       h('button', { onclick: qrDialog }, 'QR'),
       isSuper && h('button', { onclick: menusDialog }, 'Menús'),
+      store.mode !== 'demo' && h('button', { onclick: accountDialog }, 'Cuenta'),
       isSuper && h('button', { onclick: deleteMenu }, 'Eliminar menú'),
       h(
         'button',
@@ -1382,7 +1442,7 @@ async function start() {
 
   // Al volver a la pestaña, el cliente ve los cambios recientes.
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && !live) refresh();
+    if (document.visibilityState === 'visible' && !state.editing) refresh();
   });
 }
 

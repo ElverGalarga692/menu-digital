@@ -382,3 +382,10 @@ dialog .link { justify-self: start; padding-left: 0; }
 
 /* Traducción de una opción: ocupa su propia línea bajo nombre y precio. */
 .variant-row .variant-t { grid-column: 1 / -1; }
+
+/* ---------- Usuarios ---------- */
+
+.menu-list.users li { flex-wrap: wrap; }
+.user-email { font-weight: 500; overflow-wrap: anywhere; min-width: 0; }
+.menu-list.users .tools { margin-left: auto; }
+dialog .dialog-body > .btn { justify-self: start; }

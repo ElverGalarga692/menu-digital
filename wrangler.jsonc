@@ -4,8 +4,11 @@
   "compatibility_date": "2026-11-10",
   // Mantiene activa la dirección menu.SUBDOMINIO.workers.dev en cada despliegue.
   "workers_dev": true,
-  // Atiende /api/* (lectura del menú); el resto son archivos del sitio.
+  // Atiende /api/* (menús y cuentas); el resto son archivos del sitio.
   "main": "worker.js",
+  // Base de datos de menús y cuentas. Cloudflare la crea sola en el primer
+  // despliegue; las tablas las crea worker.js.
+  "d1_databases": [{ "binding": "DB" }],
   "assets": {
     "directory": ".",
     "binding": "ASSETS",
