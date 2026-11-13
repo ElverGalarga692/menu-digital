@@ -1,0 +1,10 @@
+// Despliegue en Cloudflare (Workers con archivos estáticos).
+{
+  "name": "menu",
+  "compatibility_date": "2026-11-10",
+  "assets": {
+    "directory": ".",
+    // Las direcciones limpias (/atono) no son archivos: se atienden con index.html.
+    "not_found_handling": "single-page-application"
+  }
+}

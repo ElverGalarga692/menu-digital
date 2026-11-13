@@ -77,20 +77,20 @@ producción.
 - La portada (`/`) muestra el menú `defaultMenu` de `js/config.js`.
 - `404.html` es una copia exacta de `index.html`: es lo que permite las
   direcciones limpias en GitHub Pages. **Si cambias uno, copia el otro.**
-  En Cloudflare Pages esa función la cumple el archivo `_redirects`.
+  En Cloudflare esa función la cumple `wrangler.jsonc`.
 
-## Pasar a Cloudflare Pages y usar dominio propio
+## Publicar en Cloudflare y usar dominio propio
 
-1. En <https://dash.cloudflare.com> → **Workers & Pages → Create → Pages →
-   Connect to Git** y elige este repositorio.
-2. Configuración de compilación: **Framework preset: None**, comando de
-   compilación vacío, directorio de salida `/`. Desplegar.
-3. El sitio queda en `https://NOMBRE.pages.dev`. Cada `git push` a `main`
-   se publica solo.
-4. Dominio propio: en el proyecto → **Custom domains → Set up a domain**
+1. En <https://dash.cloudflare.com> → **Workers & Pages → Create →
+   Import a repository** y elige este repositorio.
+2. No hace falta configurar nada: el despliegue lo define `wrangler.jsonc`
+   (comando `npx wrangler deploy`, sin paso de compilación).
+3. El sitio queda en `https://menu.SUBDOMINIO.workers.dev`. Cada
+   `git push` a `main` se publica solo.
+4. Dominio propio: en el proyecto → **Settings → Domains & Routes → Add → Custom domain**
    y sigue los pasos (lo más simple es que el dominio esté en Cloudflare).
 5. En Firebase → **Authentication → Settings → Authorized domains** añade
-   `NOMBRE.pages.dev` y tu dominio; sin esto el login falla ahí.
+   la dirección `workers.dev` y tu dominio; sin esto el login falla ahí.
 6. Opcional, un dominio por local: en `js/config.js` → `domains`, indica
    qué menú abre la portada de cada dominio, por ejemplo
    `{ 'menu.atono.com': 'atono' }`.
@@ -102,7 +102,8 @@ producción.
 ```
 index.html            la página
 404.html              copia de index.html (direcciones limpias en GitHub Pages)
-_redirects            direcciones limpias en Cloudflare Pages
+wrangler.jsonc        despliegue y direcciones limpias en Cloudflare
+.assetsignore         archivos del repo que no se publican en Cloudflare
 css/styles.css
 js/config.js          configuración (menú por defecto, Firebase)
 js/app.js             interfaz: vista cliente y modo edición

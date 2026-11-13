@@ -1,0 +1,9 @@
+# Archivos del repositorio que no forman parte del sitio publicado.
+.git
+.gitignore
+.assetsignore
+.wrangler
+node_modules
+wrangler.jsonc
+firestore.rules
+README.md
