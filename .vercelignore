@@ -1,0 +1,7 @@
+# Archivos del repositorio que no forman parte del sitio en Vercel.
+worker.js
+wrangler.jsonc
+_headers
+.assetsignore
+.wrangler
+README.md

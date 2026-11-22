@@ -7,3 +7,7 @@ node_modules
 wrangler.jsonc
 README.md
 worker.js
+api
+package.json
+vercel.json
+.vercelignore

@@ -5,11 +5,12 @@ muchos menús: cada local tiene su dirección (`/identificador`), su logo,
 sus colores y su moneda, y su dueño lo edita desde la misma página.
 
 - Sin frameworks ni paso de compilación: HTML, CSS y JavaScript.
-- Todo vive en Cloudflare: la página, los datos (base de datos D1) y el
-  login. No depende de servicios de Google, así que funciona en redes y
-  países donde estos no son accesibles.
+- Se publica en **Vercel** (datos en Upstash Redis) o en **Cloudflare**
+  (datos en D1), con el mismo código. No depende de servicios de Google.
+- Algunas operadoras móviles cortan las conexiones a `*.workers.dev`
+  (`ERR_CONNECTION_RESET`); por eso el sitio principal pasa a Vercel.
 
-Sitio: <https://menu.digital-a.workers.dev>
+Sitio anterior: <https://menu.digital-a.workers.dev>
 
 ## Cuentas y permisos
 
@@ -20,7 +21,7 @@ Sitio: <https://menu.digital-a.workers.dev>
 | Crear cuentas y contraseñas   | Sí                 | No                |
 | Decidir quién edita cada menú | Sí                 | No                |
 
-Los permisos se comprueban en el servidor (`worker.js`), no solo en la
+Los permisos se comprueban en el servidor (`api/_core.js`), no solo en la
 página.
 
 ## Dar de alta un local
@@ -63,6 +64,25 @@ página.
   direcciones antiguas `?m=identificador` siguen funcionando.
 - La portada (`/`) muestra el menú `defaultMenu` de `js/config.js`.
 
+## Despliegue en Vercel
+
+1. En <https://vercel.com>, **Add New → Project** e importa este
+   repositorio. Framework: **Other**, sin comando de compilación. Deploy.
+2. En el proyecto → **Storage → Create Database → Upstash for Redis**
+   (plan gratuito) y conéctala al proyecto. Esto añade solas las variables
+   `KV_REST_API_URL` y `KV_REST_API_TOKEN`.
+3. **Deployments → Redeploy** para que el servidor vea la base de datos.
+4. Abre `https://TU-PROYECTO.vercel.app/atono` → **Administrar** y entra
+   con tu cuenta de superadministrador de siempre. La primera vez se copian
+   solos todos los menús y cuentas del sitio de Cloudflare (con las mismas
+   contraseñas). Hasta entonces, los menús se leen de allí.
+5. Vuelve a generar los QR desde la dirección nueva.
+
+La copia usa el sitio indicado en `LEGACY_API` (por defecto
+`https://menu.digital-a.workers.dev`) y solo ocurre una vez, mientras el
+sitio de Vercel no tenga cuentas. `vercel.json` envía `/api/...` a
+`api/handler.js` y el resto de direcciones a `index.html`.
+
 ## Despliegue en Cloudflare
 
 El repositorio está conectado a Cloudflare (Workers & Pages → proyecto
@@ -71,6 +91,8 @@ según `wrangler.jsonc`.
 
 - La base de datos D1 se crea sola en el primer despliegue y las tablas
   las crea `worker.js` al primer uso.
+- `GET /api/export` (solo superadministrador) entrega todos los menús y
+  cuentas; es lo que usa Vercel para copiar los datos.
 - Las contraseñas se guardan cifradas (PBKDF2). La clave que firma las
   sesiones se genera sola y se guarda en la base de datos.
 - **Copia de seguridad**: en el panel de Cloudflare → Storage & Databases →
@@ -113,9 +135,13 @@ se guardan en el navegador.
 ```
 index.html            la página
 404.html              copia de index.html (direcciones limpias en GitHub Pages)
-worker.js             servidor: menús, cuentas y sesiones (/api/...)
+api/_core.js          servidor: menús, cuentas y sesiones (/api/...), común a ambos
+api/handler.js        servidor en Vercel (datos en Upstash Redis)
+vercel.json           direcciones y cabeceras en Vercel
+.vercelignore         archivos del repo que no se publican en Vercel
+worker.js             servidor en Cloudflare (datos en D1)
 wrangler.jsonc        configuración del despliegue en Cloudflare
-.assetsignore         archivos del repo que no se publican
+.assetsignore         archivos del repo que no se publican en Cloudflare
 css/styles.css        estilos
 css/fonts.css         tipografías (archivos en assets/fonts)
 js/config.js          configuración (menú por defecto, dominios)
