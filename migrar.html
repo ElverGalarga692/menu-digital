@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Traer datos</title>
+  <style>
+    :root { --bg: #f4f1e8; --ink: #2b2520; --muted: #6b625a; --accent: #8a5a2b; --line: #d9d2c3; --ok: #2f7a3a; --bad: #b3362b; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #1d1a17; --ink: #efe8dc; --muted: #b3a999; --accent: #d49a5c; --line: #3a342d; --ok: #7cc98a; --bad: #f08a7e; } }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 system-ui, sans-serif; }
+    main { max-width: 32rem; margin: 0 auto; padding: 2rem 1rem; }
+    h1 { font-size: 1.4rem; margin: 0 0 .5rem; }
+    p { color: var(--muted); margin: 0 0 1rem; }
+    label { display: block; font-weight: 600; margin: 1rem 0 .3rem; }
+    fieldset { border: 1px solid var(--line); border-radius: .5rem; padding: .25rem .75rem .75rem; margin: 0; }
+    fieldset label { font-weight: 400; margin: .5rem 0 0; display: flex; gap: .5rem; align-items: center; }
+    fieldset input { width: auto; }
+    [hidden] { display: none !important; }
+    input { width: 100%; padding: .65rem .75rem; font: inherit; color: inherit; background: transparent; border: 1px solid var(--line); border-radius: .5rem; }
+    button { margin-top: 1.5rem; width: 100%; padding: .8rem; font: inherit; font-weight: 600; color: #fff; background: var(--accent); border: 0; border-radius: .5rem; cursor: pointer; }
+    button:disabled { opacity: .6; cursor: wait; }
+    #log { margin-top: 1.5rem; padding: 0; list-style: none; }
+    #log li { padding: .35rem 0; border-top: 1px solid var(--line); }
+    .ok { color: var(--ok); } .bad { color: var(--bad); }
+    small { color: var(--muted); }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Primera puesta en marcha</h1>
+  <p>Crea la cuenta de superadministrador de este sitio. Se hace una sola vez. El correo debe ser el mismo que escribiste en <code>admin_email</code> dentro de <code>api/config.php</code>.</p>
+  <form id="form">
+    <fieldset>
+      <label><input type="radio" name="mode" value="fresh" checked> Empezar de cero, con el menú de ejemplo de Atono</label>
+      <label><input type="radio" name="mode" value="copy"> Copiar menús y cuentas del sitio anterior (si no abre, activa la VPN)</label>
+    </fieldset>
+    <div id="old-box" hidden>
+      <label for="old">Sitio anterior</label>
+      <input id="old" value="https://menu.digital-a.workers.dev">
+    </div>
+    <label for="email">Tu correo de superadministrador</label>
+    <input id="email" type="email" autocomplete="username" required>
+    <label for="password" id="password-label">Contraseña nueva (mínimo 8 caracteres)</label>
+    <input id="password" type="password" autocomplete="new-password" minlength="8" required>
+    <button id="go">Crear mi cuenta</button>
+  </form>
+  <ul id="log"></ul>
+</main>
+<script>
+  var log = document.getElementById('log');
+  function say(text, cls) {
+    var li = document.createElement('li');
+    li.textContent = text;
+    if (cls) li.className = cls;
+    log.appendChild(li);
+  }
+
+  async function api(base, method, path, body, token) {
+    var headers = {};
+    if (body) headers['content-type'] = 'application/json';
+    if (token) headers.authorization = 'Bearer ' + token;
+    var res;
+    try {
+      res = await fetch(base + '/api' + path, { method: method, headers: headers, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' });
+    } catch (e) {
+      throw new Error('No se pudo conectar con ' + (base || 'este sitio') + '.');
+    }
+    var data = await res.json().catch(function () { return {}; });
+    if (!res.ok) {
+      var err = new Error(data.error || ('Respuesta ' + res.status));
+      err.status = res.status;
+      throw err;
+    }
+    return data;
+  }
+
+  function mode() {
+    return document.querySelector('input[name=mode]:checked').value;
+  }
+  document.querySelectorAll('input[name=mode]').forEach(function (radio) {
+    radio.addEventListener('change', function () {
+      var copy = mode() === 'copy';
+      document.getElementById('old-box').hidden = !copy;
+      document.getElementById('password-label').textContent = copy ? 'Tu contraseña en el sitio anterior' : 'Contraseña nueva (mínimo 8 caracteres)';
+      document.getElementById('password').autocomplete = copy ? 'current-password' : 'new-password';
+      document.getElementById('go').textContent = copy ? 'Copiar datos' : 'Crear mi cuenta';
+    });
+  });
+
+  document.getElementById('form').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    var button = document.getElementById('go');
+    var old = document.getElementById('old').value.trim().replace(/\/+$/, '');
+    var email = document.getElementById('email').value.trim().toLowerCase();
+    var password = document.getElementById('password').value;
+    log.textContent = '';
+    button.disabled = true;
+    try {
+      say('Comprobando este sitio…');
+      var health = await api('', 'GET', '/health');
+      if (health.accounts > 0) throw new Error('Este sitio ya tiene cuentas: ya está en marcha. Entra desde cualquier menú → Administrar.');
+
+      if (mode() === 'fresh') {
+        say('Creando tu cuenta y el menú de ejemplo…');
+        var seed = await import('./js/seed.js');
+        var config = (await import('./js/config.js')).CONFIG;
+        var done = await api('', 'POST', '/import', { email: email, password: password, menus: [{ slug: config.defaultMenu, menu: seed.sampleMenu() }], users: [] });
+        say('Listo: cuenta creada y ' + done.menus + ' menú de ejemplo.', 'ok');
+        say('Entra desde el menú → Administrar con este correo y la contraseña que elegiste.', 'ok');
+        return;
+      }
+
+      say('Entrando en el sitio anterior…');
+      var session = await api(old, 'POST', '/login', { email: email, password: password });
+      if (!session.user || !session.user.isSuper) throw new Error('Esa cuenta no es de superadministrador en el sitio anterior.');
+
+      var menus, users = [], missing = [];
+      try {
+        say('Descargando menús y cuentas…');
+        var all = await api(old, 'GET', '/export', null, session.token);
+        menus = all.menus;
+        users = all.users;
+      } catch (err) {
+        if (err.status !== 404) throw err;
+        // El sitio anterior no tiene /export: se copian los menús y solo tu cuenta.
+        say('El sitio anterior no permite copiar las contraseñas: se copian los menús y tu cuenta.');
+        var list = (await api(old, 'GET', '/menus', null, session.token)).menus;
+        menus = [];
+        for (var i = 0; i < list.length; i++) {
+          var m = await api(old, 'GET', '/menu/' + list[i].slug, null, session.token);
+          menus.push({ slug: list[i].slug, menu: m.menu });
+        }
+        missing = (await api(old, 'GET', '/users', null, session.token)).users
+          .map(function (u) { return u.email; })
+          .filter(function (u) { return u !== email; });
+      }
+      say('Encontrados: ' + menus.length + ' menús.');
+
+      say('Guardando en este sitio…');
+      var result = await api('', 'POST', '/import', { email: email, password: password, menus: menus, users: users });
+      say('Listo: ' + result.menus + ' menús y ' + result.users + ' cuentas copiadas.', 'ok');
+      if (missing.length) {
+        say('Estas cuentas necesitan contraseña nueva (Cuenta → Usuarios): ' + missing.join(', '), 'bad');
+      }
+      say('Ya puedes desactivar la VPN y entrar desde cualquier menú → Administrar.', 'ok');
+    } catch (err) {
+      say(err.message, 'bad');
+    } finally {
+      button.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>

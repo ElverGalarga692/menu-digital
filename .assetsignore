@@ -7,3 +7,6 @@ node_modules
 wrangler.jsonc
 README.md
 worker.js
+api
+.htaccess
+migrar.html
