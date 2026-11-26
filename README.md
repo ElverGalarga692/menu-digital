@@ -85,7 +85,9 @@ habitual en cPanel), que leen el archivo `.htaccess`.
    superadministrador (`admin_email`).
 4. **Comprobación**: abre `https://TU-DOMINIO/api/health`. Debe decir
    `"ok":true`. Las tablas se crean solas en ese momento.
-5. **Traer los datos**: abre `https://TU-DOMINIO/migrar.html` (con VPN si
+5. **Puesta en marcha**: abre `https://TU-DOMINIO/migrar.html`. Elige
+   **Empezar de cero** (crea tu cuenta y el menú de ejemplo de Atono) o
+   **Copiar del sitio anterior** (con VPN si
    el sitio anterior no abre en tu conexión), escribe tu correo y
    contraseña de superadministrador y pulsa **Copiar datos**. Copia todos
    los menús y cuentas con sus contraseñas. Solo funciona una vez, en un
