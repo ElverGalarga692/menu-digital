@@ -1,0 +1,60 @@
+# Publica el sitio en el hosting (PHP + MySQL) por FTP cada vez que cambia
+# main. Solo sube los archivos que cambiaron desde la última vez.
+#
+# Necesita tres secretos en GitHub (Settings → Secrets and variables →
+# Actions): FTP_SERVER, FTP_USERNAME y FTP_PASSWORD. La cuenta FTP debe
+# apuntar a la carpeta public_html del dominio.
+#
+# Nunca toca api/config.php (no está en el repositorio): solo borra en el
+# hosting archivos que este mismo proceso subió antes y ya no existen aquí.
+name: Publicar en el hosting
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-hosting
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Comprobar los datos FTP
+        id: check
+        env:
+          FTP_SERVER: ${{ secrets.FTP_SERVER }}
+        run: |
+          if [ -z "$FTP_SERVER" ]; then
+            echo "::notice::Faltan los secretos FTP_SERVER, FTP_USERNAME y FTP_PASSWORD: no se publica."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.check.outputs.ready == 'true'
+
+      - name: Subir por FTP
+        if: steps.check.outputs.ready == 'true'
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ${{ secrets.FTP_PROTOCOL || 'ftps' }}
+          server-dir: ./
+          exclude: |
+            **/.git*
+            **/.git*/**
+            .github/**
+            worker.js
+            wrangler.jsonc
+            _headers
+            .assetsignore
+            .nojekyll
+            README.md
+            migrar.html
+            api/config.php

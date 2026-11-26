@@ -103,6 +103,24 @@ habitual en cPanel), que leen el archivo `.htaccess`.
 - **Copia de seguridad**: cPanel → phpMyAdmin → la base de datos →
   Exportar.
 
+### Publicación automática por FTP
+
+`.github/workflows/deploy.yml` sube los cambios al hosting cada vez que
+cambia `main` (y se puede lanzar a mano en GitHub → Actions → Publicar en
+el hosting → Run workflow).
+
+1. En el panel del hosting (HestiaCP): pestaña **WEB** → editar el dominio
+   → marca **Cuentas FTP adicionales** → usuario, contraseña y ruta
+   `public_html` → Guardar.
+2. En GitHub: **Settings → Secrets and variables → Actions → New
+   repository secret**, crea `FTP_SERVER` (servidor FTP, p. ej. el nombre
+   del servidor del panel), `FTP_USERNAME` (el usuario completo que muestra
+   el panel) y `FTP_PASSWORD`.
+3. Opcional: `FTP_PROTOCOL` = `ftp` si el hosting no acepta conexiones
+   cifradas (por defecto `ftps`).
+
+Solo sube lo que cambió. No toca `api/config.php` ni sube `migrar.html`.
+
 ## Despliegue en Cloudflare
 
 El repositorio está conectado a Cloudflare (Workers & Pages → proyecto
