@@ -5,11 +5,14 @@ muchos menús: cada local tiene su dirección (`/identificador`), su logo,
 sus colores y su moneda, y su dueño lo edita desde la misma página.
 
 - Sin frameworks ni paso de compilación: HTML, CSS y JavaScript.
-- Todo vive en Cloudflare: la página, los datos (base de datos D1) y el
-  login. No depende de servicios de Google, así que funciona en redes y
-  países donde estos no son accesibles.
+- Funciona en cualquier hosting con **PHP y MySQL** (servidor en
+  `api/index.php`) o en **Cloudflare** (servidor en `worker.js`, datos en
+  D1), con la misma página. No depende de servicios de Google.
+- Algunas operadoras móviles cortan las conexiones a `*.workers.dev`
+  (`ERR_CONNECTION_RESET`); por eso el sitio principal pasa a un hosting
+  propio con dominio propio.
 
-Sitio: <https://menu.digital-a.workers.dev>
+Sitio: <https://menudigital.nat.do> · anterior: <https://menu.digital-a.workers.dev>
 
 ## Cuentas y permisos
 
@@ -20,8 +23,8 @@ Sitio: <https://menu.digital-a.workers.dev>
 | Crear cuentas y contraseñas   | Sí                 | No                |
 | Decidir quién edita cada menú | Sí                 | No                |
 
-Los permisos se comprueban en el servidor (`worker.js`), no solo en la
-página.
+Los permisos se comprueban en el servidor (`api/index.php` o `worker.js`),
+no solo en la página.
 
 ## Dar de alta un local
 
@@ -63,6 +66,41 @@ página.
   direcciones antiguas `?m=identificador` siguen funcionando.
 - La portada (`/`) muestra el menú `defaultMenu` de `js/config.js`.
 
+## Despliegue en un hosting con PHP y MySQL (cPanel)
+
+Requisitos: PHP 7.2 o superior con PDO MySQL, y Apache o LiteSpeed (lo
+habitual en cPanel), que leen el archivo `.htaccess`.
+
+1. **Base de datos**: en cPanel → **Bases de datos MySQL**, crea una base
+   de datos y un usuario, y añade el usuario a la base con **todos los
+   privilegios**. Anota los nombres completos (cPanel les antepone tu
+   usuario, p. ej. `cuenta_menu`) y la contraseña.
+2. **Archivos**: en cPanel → **Administrador de archivos**, abre la carpeta
+   del dominio (`public_html` o la que indique **Dominios**) y sube el
+   contenido del sitio: `index.html`, `404.html`, `migrar.html`,
+   `.htaccess`, y las carpetas `api`, `css`, `js` y `assets`. Activa
+   "Mostrar archivos ocultos" para ver `.htaccess`.
+3. **Configuración**: en `api/`, copia `config.example.php` como
+   `config.php` y escribe los datos de MySQL y tu correo de
+   superadministrador (`admin_email`).
+4. **Comprobación**: abre `https://TU-DOMINIO/api/health`. Debe decir
+   `"ok":true`. Las tablas se crean solas en ese momento.
+5. **Traer los datos**: abre `https://TU-DOMINIO/migrar.html` (con VPN si
+   el sitio anterior no abre en tu conexión), escribe tu correo y
+   contraseña de superadministrador y pulsa **Copiar datos**. Copia todos
+   los menús y cuentas con sus contraseñas. Solo funciona una vez, en un
+   sitio sin cuentas. Después puedes borrar `migrar.html`.
+6. Activa **SSL** (cPanel → SSL/TLS Status o Let's Encrypt) para que el
+   sitio abra con `https://`, y vuelve a generar los QR desde el dominio
+   nuevo.
+
+- Algunos hostings bloquean las peticiones PUT y DELETE: la página las
+  envía como POST con la cabecera `X-HTTP-Method-Override`.
+- `api/config.php` no está en el repositorio (guarda las claves) y
+  `api/.htaccess` impide abrirlo desde el navegador.
+- **Copia de seguridad**: cPanel → phpMyAdmin → la base de datos →
+  Exportar.
+
 ## Despliegue en Cloudflare
 
 El repositorio está conectado a Cloudflare (Workers & Pages → proyecto
@@ -71,6 +109,8 @@ según `wrangler.jsonc`.
 
 - La base de datos D1 se crea sola en el primer despliegue y las tablas
   las crea `worker.js` al primer uso.
+- `GET /api/export` (solo superadministrador) entrega todos los menús y
+  cuentas; lo usa `migrar.html` para copiarlos a otro servidor.
 - Las contraseñas se guardan cifradas (PBKDF2). La clave que firma las
   sesiones se genera sola y se guarda en la base de datos.
 - **Copia de seguridad**: en el panel de Cloudflare → Storage & Databases →
@@ -113,9 +153,14 @@ se guardan en el navegador.
 ```
 index.html            la página
 404.html              copia de index.html (direcciones limpias en GitHub Pages)
-worker.js             servidor: menús, cuentas y sesiones (/api/...)
+migrar.html           copia única de datos desde el sitio anterior
+.htaccess             direcciones y cabeceras en hosting Apache/LiteSpeed
+api/index.php         servidor en PHP + MySQL: menús, cuentas y sesiones (/api/...)
+api/config.example.php  plantilla de api/config.php (datos de MySQL)
+api/.htaccess         impide abrir config.php desde el navegador
+worker.js             servidor en Cloudflare (mismas rutas, datos en D1)
 wrangler.jsonc        configuración del despliegue en Cloudflare
-.assetsignore         archivos del repo que no se publican
+.assetsignore         archivos del repo que no se publican en Cloudflare
 css/styles.css        estilos
 css/fonts.css         tipografías (archivos en assets/fonts)
 js/config.js          configuración (menú por defecto, dominios)

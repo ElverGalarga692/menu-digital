@@ -57,6 +57,12 @@ function apiStore(config) {
     const headers = {};
     if (body !== undefined) headers['content-type'] = 'application/json';
     if (auth && token) headers.authorization = `Bearer ${token}`;
+    // Algunos hostings bloquean PUT y DELETE: viajan como POST y el servidor
+    // lee el método real de esta cabecera.
+    if (method === 'PUT' || method === 'DELETE') {
+      headers['x-http-method-override'] = method;
+      method = 'POST';
+    }
     const abort = new AbortController();
     const timer = setTimeout(() => abort.abort(), wait);
     let res;

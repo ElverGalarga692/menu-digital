@@ -11,6 +11,11 @@
 //   GET    /api/users              cuentas (superadministrador)
 //   PUT    /api/users/<correo>     { password } crea la cuenta o cambia su contraseña
 //   DELETE /api/users/<correo>     elimina la cuenta
+//   GET    /api/export             copia completa: menús y cuentas (superadministrador);
+//                                  la usa migrar.html para mudar el sitio a otro servidor
+//
+// Las peticiones PUT y DELETE también se aceptan como POST con la cabecera
+// X-HTTP-Method-Override (algunos hostings bloquean PUT y DELETE).
 const SESSION_DAYS = 30;
 const MAX_MENU_BYTES = 900_000;
 const PBKDF2_ITERATIONS = 100_000;
@@ -19,7 +24,7 @@ const LOCK_MINUTES = 10;
 
 const CORS = {
   'access-control-allow-origin': '*',
-  'access-control-allow-headers': 'authorization, content-type',
+  'access-control-allow-headers': 'authorization, content-type, x-http-method-override',
   'access-control-allow-methods': 'GET, PUT, POST, DELETE, OPTIONS',
   'access-control-max-age': '86400',
 };
@@ -229,7 +234,8 @@ async function login(request, env) {
 }
 
 async function handleApi(request, env, path) {
-  const method = request.method;
+  const override = (request.headers.get('x-http-method-override') || '').toUpperCase();
+  const method = request.method === 'POST' && (override === 'PUT' || override === 'DELETE') ? override : request.method;
   await ensureSchema(env);
 
   if (path === '/login' && method === 'POST') return login(request, env);
@@ -255,6 +261,16 @@ async function handleApi(request, env, path) {
     await requireSuper(request, env);
     const { results } = await env.DB.prepare('SELECT email, is_super FROM users ORDER BY is_super DESC, email').all();
     return json({ users: results.map((r) => ({ email: r.email, isSuper: r.is_super === 1 })) });
+  }
+
+  if (path === '/export' && method === 'GET') {
+    await requireSuper(request, env);
+    const menus = (await env.DB.prepare('SELECT slug, data FROM menus').all()).results;
+    const users = (await env.DB.prepare('SELECT * FROM users').all()).results;
+    return json({
+      menus: menus.map((r) => ({ slug: r.slug, menu: JSON.parse(r.data) })),
+      users: users.map((r) => ({ email: r.email, salt: r.salt, hash: r.hash, isSuper: r.is_super === 1, createdAt: r.created_at })),
+    });
   }
 
   const userMatch = path.match(/^\/users\/([^/]+)$/);
